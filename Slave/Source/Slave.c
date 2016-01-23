@@ -44,15 +44,20 @@
 
 // デバッグメッセージ
 #define DBG
+#undef DBG
 #ifdef DBG
 #define UART_BAUD 115200 // シリアルのボーレート
 #define dbg(...) vfPrintf(&sSerStream, LB __VA_ARGS__)
+//#define dbg(...) {SPRINTF_vRewind(); vfPrintf(SPRINTF_Stream, LB __VA_ARGS__); sendSprintf();}
 #else
 #define dbg(...)
 #undef WAIT_UART_OUTPUT
 #define WAIT_UART_OUTPUT(...) // disabled
 
 #endif
+
+// プロトタイプ宣言
+static bool_t sendSprintf();
 
 // 変数
 static tsFILE sSerStream;          // シリアル用ストリーム
@@ -127,6 +132,11 @@ static void vInitHardware()
 static bool_t sendDebugMessage(char *message){
 	tsTxDataApp tsTx;
 	uint8 size;
+
+	if(sAppData.u32parentAddr == 0){
+		return;
+	}
+
 	memset(&tsTx, 0, sizeof(tsTxDataApp));
 
 	tsTx.u32SrcAddr = ToCoNet_u32GetSerial();
@@ -152,6 +162,15 @@ static bool_t sendDebugMessage(char *message){
 	// 送信
 	return ToCoNet_bMacTxReq(&tsTx);
 }
+
+
+static bool_t sendSprintf(){
+	char *message = SPRINTF_pu8GetBuff();
+	message[97] = 0;
+	return sendDebugMessage(message);
+}
+
+
 
 // Masterへの送信実行
 static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 u8Cmd)
@@ -245,7 +264,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 				//dbg("wait a small tick");
 				if (ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
-					//ToCoNet_vRfConfig();
+					ToCoNet_vRfConfig();
 					vPortSetHi(PORT_LED_4);
 					dbg("master scan...");
 					ToCoNet_NbScan_bStart(CHANNEL_MASK, 128);
