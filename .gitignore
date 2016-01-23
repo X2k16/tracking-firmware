@@ -7,6 +7,5 @@ Slave/Build/*.bin
 *.sdf
 *.suo
 *.opensdf
-Common/*
 *.filters
 build_log.txt
