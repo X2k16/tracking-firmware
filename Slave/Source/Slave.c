@@ -171,6 +171,10 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 		}
 	}
 
+	if (eEvent == E_EVENT_TICK_TIMER) {
+		sAppData.u8tick_ms += 4;
+	}
+
 	// ステート処理
 	switch (pEv->eState) {
 		// アイドル状態
