@@ -30,15 +30,12 @@
 //0x1FF800 //ch11 to ch20
 
 // ポート定義
-#define DO1		18
-#define DO2		19
-#define DO3		4
-#define DO4		9 // デジタル出力 4
+#define PORT_LED_1 1
 #define UART_BAUD 115200 // シリアルのボーレート
 
 // デバッグメッセージ
 #undef DBG
-//#define DBG
+#define DBG
 #ifdef DBG
 #define dbg(...) vfPrintf(&sSerStream, LB __VA_ARGS__)
 #else
@@ -55,54 +52,9 @@ typedef struct {
 	// Random count generation
 	uint32 u32randcount; // not used in this application
 
-	// OSC calibration
-	uint32 u32RcOscError;
-
-	// frame sequence number
-	uint32 u32FrameCount;
-
-	// CCA fail count
-	uint16 u16CCAfail;
-
-	// PER
-	uint16 u16PerCount;
-	uint16 u16PerCountMax;
-	uint16 u16PerSuccess;
-	uint16 u16PerSuccessAppAck;
-	uint8 bPerFinish;
-	uint8 bPerAppAckMode;
-	uint8 u8PerLqiLast;
-	uint32 u32PerLqiSum;
-
 	// PER MAC SETTING
-	uint8 u8retry;
 	uint8 u8channel;
-	uint8 u8Power;
 
-	uint8 u8payload;
-
-	// TICK COUNT
-	uint8 u8tick_ms;
-
-	// Tx Finish Flag
-	uint8 bTxBusy;
-
-	// 送信中のシーケンス番号
-	uint8 u8TxSeq;
-
-	// Child nodes
-	uint8 u8ChildFound;
-	uint8 u8ChildSelect;
-	tsToCoNet_NbScan_Entitiy asChilds[20];
-	uint32 u32ChildAddr;
-	uint8 u8ChildConfCh;
-
-	// Energy Scan
-	uint8 u8ChEnergy;
-	uint8 u8ChEnergyMax;
-
-	// Disp Lang
-	uint8 u8Lang;
 } tsAppData;
 
 
@@ -137,6 +89,13 @@ static void vSerialInit() {
 	sSerStream.u8Device = E_AHI_UART_0;
 }
 
+static void vInitPort()
+{
+	// 使用ポートの設定
+	vPortAsOutput(PORT_LED_1);
+	vPortSetLo(PORT_LED_1);
+}
+
 // ハードウェア初期化
 static void vInitHardware()
 {
@@ -145,10 +104,7 @@ static void vInitHardware()
 	ToCoNet_vDebugInit(&sSerStream);
 	ToCoNet_vDebugLevel(0);
 
-
-	// 使用ポートの設定
-	vPortAsOutput(DO4);
-	vPortSetLo(DO4);
+	vInitPort();
 }
 
 // ユーザ定義のイベントハンドラ
@@ -156,10 +112,9 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 {
 	//	static int i = 0;
 	if (eEvent == E_EVENT_TICK_SECOND) {
-		// DO4 の Lo / Hi をトグル
+
 		sec++;
 		if (sec > 2){
-			vPortSetLo(DO4);
 			sec = 0;
 		}
 
@@ -172,7 +127,6 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			{
 				dbg("** Master init**");
 				echo("{ \"status\": \"initialize\" }");
-				vPortSetLo(DO4);
 				//sendBroadcast();
 				// 起動直後
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
@@ -248,7 +202,6 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 			echo("{ \"macaddress\": \"%08X\", \"idm\": %d }", pRx->u32SrcAddr, data.IDm);
 			WAIT_UART_OUTPUT(E_AHI_UART_0);
 			u32BeforeSeq = pRx->u8Seq;
-			vPortSetHi(DO4);
 		}
 	}
 
