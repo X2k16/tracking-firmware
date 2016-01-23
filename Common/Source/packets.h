@@ -1,6 +1,3 @@
-
-
-
 #ifndef PACKETS_H_
 #define PACKETS_H_
 
@@ -26,20 +23,14 @@ typedef enum
 	PACKET_CBID_STATUS
 } tePacketCbid;
 
-
 typedef struct
 {
 	char IDm[8];
 } tsFelicaData;
 
-
-
-#endif /* PACKETS_H_ */
-
-
-
-
 enum PacketType
 {
 	Data, Cmd, Felica
 };
+
+#endif /* PACKETS_H_ */

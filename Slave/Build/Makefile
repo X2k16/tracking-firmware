@@ -44,7 +44,7 @@ include ../Version.mk
 #   ../Source
 #   ../Common/Source
 #
-APPSRC += Slave.c HtsDriver.c
+APPSRC += Slave.c
 
 ### Target type
 # アプリケーション(.bin)をビルドするか、ライブラリ(.a)にするか指定します。
@@ -55,7 +55,7 @@ TARGET_TYPE=bin # for building final application
 
 ### ToCoNet debug build
 # ToCoNet のスタックデバッグ出力を使用する場合 1 を指定します。
-# - ターゲットファイル名に _TDBG が追加されます。 
+# - ターゲットファイル名に _TDBG が追加されます。
 #
 TOCONET_DEBUG ?= 0
 
@@ -84,37 +84,37 @@ include ../../../../MkFiles/toconet.mk
 #  CFLAGS += -DDEBUG
 #  OBJDIR_SUFF += _Debug
 #  TARGET_SUFF += _Debug
-#endif 
+#endif
 
 ### Additional Src/Include Path
 # 下記に指定したディレクトリがソース検索パス、インクルード検索パスに設定
 # されます。Makefile のあるディレクトリからの相対パスを指定します。
 #
-#APP_COMMON_SRC_DIR_ADD1 = ../dummy1  
-#APP_COMMON_SRC_DIR_ADD2 = 
-#APP_COMMON_SRC_DIR_ADD3 = 
+#APP_COMMON_SRC_DIR_ADD1 = ../dummy1
+#APP_COMMON_SRC_DIR_ADD2 =
+#APP_COMMON_SRC_DIR_ADD3 =
 #APP_COMMON_SRC_DIR_ADD4 =
 #
 # インクルードディレクトリのみを追加指定したい場合は、-I オプションとして
 # INCFLAGS に追加します。
 #
-#INCFLAGS += -I../dummy 
+#INCFLAGS += -I../dummy
 
 ### Additional user objects (.a,.o)
 # 追加でリンクしたいライブラリ、オブジェクトファイルを指定します。
-# 
+#
 #ADDITIONAL_LIBS += ../../Common/libDummy_$(JENNIC_CHIP).a
 
-### Additional library 
+### Additional library
 # コンパイラ付属ライブラリ (math, spp など) を指定します。
 # ※ 各ライブラリの動作保証はありません。
 #
 #LDLIBS += m
 
-### Additional linker options 
+### Additional linker options
 # リンカへの追加オプションです。
 # - 必要なオプションは事前定義されているため通常は指定不要です。
-# 
+#
 #LDFLAGS += -u dummy
 
 #########################################################################

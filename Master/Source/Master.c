@@ -162,7 +162,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			vPortSetLo(DO4);
 			sec = 0;
 		}
-		
+
 	}
 
 	switch (pEv->eState)

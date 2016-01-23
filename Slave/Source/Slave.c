@@ -2,7 +2,7 @@
  * Slave.c
  *
  * ワイヤレスセンサーネットワークにおいて実際にセンサーと接続され、温度を測定する回路のソースコード
- * 
+ *
  */
 
 #include <string.h>				// C 標準ライブラリ用
@@ -127,7 +127,7 @@ static tsFelicaData getFelicaData()
 
 	// get IDm
 	// TODO
-	payload.IDm = idm;
+	memcpy(payload.IDm, idm, sizeof(idm));
 
 	return payload;
 }
@@ -349,7 +349,7 @@ void cbAppColdStart(bool_t bAfterAhiInit)
 	// TWE-EH-S 制御
 	vPortAsOutput(BOOT_PIN);
 	vPortSetLo(BOOT_PIN);
-	
+
 	if (!bAfterAhiInit) {
 		// before AHI init, very first of code.
 
