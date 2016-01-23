@@ -397,30 +397,30 @@ void cbToCoNet_vNwkEvent(teEvent eEvent, uint32 u32arg) {
 		//	break;
 		case E_EVENT_TOCONET_NWK_SCAN_COMPLETE:
 			_C{
-				tsToCoNet_NbScan_Entitiy nbNodes[4];
+				tsToCoNet_NbScan_Entitiy *nbNode = NULL;
 				tsToCoNet_NbScan_Result *pNbsc = (tsToCoNet_NbScan_Result *)u32arg;
 				dbg("%d", u32arg);
-				uint8 i, nbFound = 0;
+				uint8 i, u8lqi=0;
 
 				if (pNbsc->u8scanMode & TOCONET_NBSCAN_NORMAL_MASK) {
 					dbg("Mode: Normal Scan");
-					memset(nbNodes, 0, sizeof(nbNodes));
 					dbg("nodes: %d", pNbsc->u8found);
 					// 全チャネルスキャン結果
-					for (i = 0; i < pNbsc->u8found && i < 4; i++) {
+					for (i = 0; i < pNbsc->u8found && i < 10; i++) {
 						tsToCoNet_NbScan_Entitiy *pEnt = &pNbsc->sScanResult[pNbsc->u8IdxLqiSort[i]];
 						if (pEnt->bFound) {
-							nbFound++;
-							nbNodes[i] = *pEnt;
-							dbg("%d Ch:%d Addr:%08x", i, pEnt->u8ch, pEnt->u32addr);
+							dbg("%d Ch:%d Addr:%08x LQI:%d", i, pEnt->u8ch, pEnt->u32addr, pEnt->u8lqi);
+							if(u8lqi < pEnt->u8lqi){
+								nbNode = pEnt;
+							}
 						}
 						WAIT_UART_OUTPUT(E_AHI_UART_0);
 					}
 
 					//検索結果あり
-					if (nbFound > 0) {
-						sAppData.u8channel = nbNodes[0].u8ch;
-						sAppData.u32parentAddr = nbNodes[0].u32addr;
+					if (nbNode != NULL) {
+						sAppData.u8channel = nbNode->u8ch;
+						sAppData.u32parentAddr = nbNode->u32addr;
 						ToCoNet_Event_Process(E_EVENT_CHSCAN_FINISH, 0, vProcessEvCore);
 					}
 					else {
