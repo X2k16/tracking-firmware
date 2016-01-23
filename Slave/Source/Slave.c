@@ -123,8 +123,37 @@ static void vInitHardware()
 }
 
 
+static bool_t sendDebugMessage(char *message){
+	tsTxDataApp tsTx;
+	uint8 size;
+	memset(&tsTx, 0, sizeof(tsTxDataApp));
+
+	tsTx.u32SrcAddr = ToCoNet_u32GetSerial();
+	tsTx.u32DstAddr = sAppData.u32parentAddr;
+
+	tsTx.bAckReq = TRUE;
+	tsTx.u8Retry = 0x01; // 送信失敗時は1回再送
+	tsTx.u8CbId = u32Seq & 0xFF;
+	tsTx.u8Seq = u32Seq & 0xFF;
+	tsTx.u8Cmd = PACKET_CMD_DEBUG;
+
+	size = strlen(message);
+	if(size > 98){
+		size = 98;
+		message[97] = 0;
+	}
+
+	memcpy(tsTx.auData, message, size);
+	tsTx.u8Len = size;
+	dbg("u8Len: %d", tsTx.u8Len);
+	u32Seq++;
+
+	// 送信
+	return ToCoNet_bMacTxReq(&tsTx);
+}
+
 // Masterへの送信実行
-static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 type)
+static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 u8Cmd)
 {
 	tsTxDataApp tsTx;
 
@@ -138,7 +167,7 @@ static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 type)
 	tsTx.u8Retry = 0x01; // 送信失敗時は1回再送
 	tsTx.u8CbId = u32Seq & 0xFF;
 	tsTx.u8Seq = u32Seq & 0xFF;
-	tsTx.u8Cmd = PACKET_CMD_FELICA;
+	tsTx.u8Cmd = u8Cmd;
 
 
 	memcpy(tsTx.auData, payload, size);
@@ -234,10 +263,12 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				dbg("CHSCAN finish. Ch%d selected.", sAppData.u8channel);
 				vPortSetHi(PORT_LED_3);
 				vPortSetLo(PORT_LED_4);
-
 				//Ch変更
 				sToCoNet_AppContext.u8Channel = sAppData.u8channel;
 				ToCoNet_vRfConfig();
+
+				sendDebugMessage("Hello!");
+
 				ToCoNet_Event_SetState(pEv, E_STATE_MEASURING);
 			}
 			if (eEvent == E_EVENT_CHSCAN_FAIL)

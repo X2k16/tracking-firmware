@@ -195,17 +195,27 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 	u32LedTimer = 100; //ms
 	if (u32BeforeSeq != pRx->u8Seq)
 	{
+
+
+		if (pRx->u8Cmd == PACKET_CMD_DEBUG)
+		{
+			char buf[99];
+			memcpy(buf, pRx->auData, pRx->u8Len);
+			buf[pRx->u8Len] = 0;
+			echo("{ \"type\": \"debug\", \"macaddress\": \"%08X\", \"message\": \"%s\"}", pRx->u32SrcAddr, buf);
+		}
+
 		if (pRx->u8Cmd == PACKET_CMD_FELICA)
 		{
-			char buf[64];
 			tsFelicaData data;
 
 			memcpy((void *)&data, pRx->auData, pRx->u8Len);
 
-			echo("{ \"macaddress\": \"%08X\", \"idm\": %d }", pRx->u32SrcAddr, data.IDm);
+			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": %d }", pRx->u32SrcAddr, data.IDm);
 			WAIT_UART_OUTPUT(E_AHI_UART_0);
 			u32BeforeSeq = pRx->u8Seq;
 		}
+
 	}
 
 }
