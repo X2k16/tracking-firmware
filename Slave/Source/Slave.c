@@ -59,6 +59,7 @@ static tsFILE sSerStream;          // シリアル用ストリーム
 static tsSerialPortSetup sSerPort; // シリアルポートデスクリプタ
 static uint32 u32Seq;              // 送信パケットのシーケンス番号
 static tsAppData sAppData;
+uint32 u32BeforeSeq = 0xff;
 
 
 #ifdef DBG
@@ -339,6 +340,19 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx)
 		pRx->u32Tick & 0xFFFF);
 	// ToDo: Ping応答
 #endif
+
+	if (u32BeforeSeq != pRx->u8Seq)
+	{
+		if (pRx->u8Cmd == PACKET_CMD_KEEP_ALIVE)
+		{
+			sAppData.u32parentDisconnectTime = 0;
+			dbg("Keep-Alive was received.");
+		}
+
+		u32BeforeSeq = pRx->u8Seq;
+	}
+
+
 	return;
 }
 

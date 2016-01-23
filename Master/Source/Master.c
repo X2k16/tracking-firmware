@@ -55,6 +55,8 @@ typedef struct {
 	// PER MAC SETTING
 	uint8 u8channel;
 
+	uint16 u16timerSecond;
+
 } tsAppData;
 
 
@@ -106,12 +108,39 @@ static void vInitHardware()
 	vInitPort();
 }
 
+
+// Keep-Aliveの送信
+static bool_t sendKeepAlive(){
+	tsTxDataApp tsTx;
+	memset(&tsTx, 0, sizeof(tsTxDataApp));
+
+	tsTx.u32SrcAddr = ToCoNet_u32GetSerial();
+	tsTx.u32DstAddr = TOCONET_MAC_ADDR_BROADCAST;
+
+	tsTx.bAckReq = FALSE;
+	tsTx.u8Retry = 0x00; // 送信失敗時は1回再送
+	tsTx.u8CbId = u32Seq & 0xFF;
+	tsTx.u8Seq = u32Seq & 0xFF;
+	tsTx.u8Cmd = PACKET_CMD_KEEP_ALIVE;
+	tsTx.u8Len = 1;
+	dbg("u8Len: %d", tsTx.u8Len);
+	u32Seq++;
+
+	// 送信
+	return ToCoNet_bMacTxReq(&tsTx);
+}
+
+
+
 // ユーザ定義のイベントハンドラ
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 {
 	//	static int i = 0;
 	if (eEvent == E_EVENT_TICK_SECOND) {
-
+		sAppData.u16timerSecond += 1;
+		if((sAppData.u16timerSecond % 5)== 0){
+			sendKeepAlive();
+		}
 	}
 
 	if (eEvent == E_EVENT_TICK_TIMER) {
@@ -213,8 +242,9 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 
 			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": %d }", pRx->u32SrcAddr, data.IDm);
 			WAIT_UART_OUTPUT(E_AHI_UART_0);
-			u32BeforeSeq = pRx->u8Seq;
 		}
+
+		u32BeforeSeq = pRx->u8Seq;
 
 	}
 
