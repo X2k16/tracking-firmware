@@ -1,0 +1,12 @@
+Master/Build/objs_JN5164
+Slave/Build/objs_JN5164
+Master/Build/*.bin
+Slave/Build/*.bin
+
+# Visual Studio
+*.sdf
+*.suo
+*.opensdf
+Common/*
+*.filters
+build_log.txt
