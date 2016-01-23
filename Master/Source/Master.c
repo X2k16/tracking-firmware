@@ -173,6 +173,8 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 			break;
 
+		default:
+			break;
 	}
 }
 
@@ -193,7 +195,7 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 	u32LedTimer = 100; //ms
 	if (u32BeforeSeq != pRx->u8Seq)
 	{
-		if (pRx->u8Cmd == Felica)
+		if (pRx->u8Cmd == PACKET_CMD_FELICA)
 		{
 			char buf[64];
 			tsFelicaData data;
@@ -245,6 +247,8 @@ void cbToCoNet_vNwkEvent(teEvent eEvent, uint32 u32arg)
 				ToCoNet_Event_Process(E_EVENT_CHSCAN_FINISH, 0, vProcessEvCore);
 
 			}
+			break;
+		default:
 			break;
 	}
 	return;

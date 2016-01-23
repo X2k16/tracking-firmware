@@ -93,6 +93,14 @@ static void vInitPort()
 	vPortAsOutput(PORT_LED_4);
 	vPortAsOutput(PORT_FELICA);
 
+
+	vPortSetHi(PORT_LED_1);
+	vPortSetHi(PORT_LED_2);
+	vPortSetHi(PORT_LED_3);
+	vPortSetHi(PORT_LED_4);
+
+	vWait(0xfffff);
+
 	vPortSetLo(PORT_LED_1);
 	vPortSetLo(PORT_LED_2);
 	vPortSetLo(PORT_LED_3);
@@ -130,7 +138,7 @@ static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 type)
 	tsTx.u8Retry = 0x01; // 送信失敗時は1回再送
 	tsTx.u8CbId = u32Seq & 0xFF;
 	tsTx.u8Seq = u32Seq & 0xFF;
-	tsTx.u8Cmd = Felica;
+	tsTx.u8Cmd = PACKET_CMD_FELICA;
 
 
 	memcpy(tsTx.auData, payload, size);
@@ -181,12 +189,16 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 		case E_STATE_IDLE:
 			dbg("E_STATE_IDLE");
 
-			if ((u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) || (u32evarg & EVARG_START_UP_WAKEUP_MASK)) {
+			if (eEvent == E_EVENT_START_UP){
+
+				if (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) {
+				}
+
 				sAppData.u32parentDisconnectTime = 0;
 				// 空きチャンネルスキャンに入る
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
-			}
-			else {
+
+			}	else {
 				dbg("sleep");
 				vPortSetLo(PORT_LED_3);
 				sAppData.u32parentAddr = 0;
