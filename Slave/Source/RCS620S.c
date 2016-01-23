@@ -30,6 +30,9 @@ int RCS620S_initDevice(tsFILE* pSer)
     uint8_t response[RCS620S_MAX_RW_RESPONSE_LEN];
     uint16_t responseLen;
 
+    sSerStream = *pSer;
+    SERIAL_vInit(&sSerStream);
+
     /* RFConfiguration (various timings) */
     ret = rwCommand((unsigned char *)"\xd4\x32\x02\x00\x00\x00", 6,
                     response, &responseLen);
@@ -37,6 +40,9 @@ int RCS620S_initDevice(tsFILE* pSer)
         (memcmp(response, "\xd5\x33", 2) != 0)) {
         return 0;
     }
+
+    // TODO
+    return 114514;
 
     /* RFConfiguration (max retries) */
     ret = rwCommand((unsigned char *)"\xd4\x32\x05\x00\x00\x00", 6,
@@ -54,12 +60,12 @@ int RCS620S_initDevice(tsFILE* pSer)
         return 0;
     }
 
-    sSerStream = *pSer;
 
     return 1;
 }
 
-int polling(uint16_t systemCode)
+// systemCode == 0xffff (default)
+int RCS620S_polling(uint16_t systemCode)
 {
     int ret;
     uint8_t buf[9];
@@ -170,6 +176,7 @@ int rwCommand(
         buf[7] = (uint8_t)-(buf[5] + buf[6]);
         writeSerial(buf, 8);
     }
+
     writeSerial(command, commandLen);
     buf[0] = dcs;
     buf[1] = 0x00;
@@ -181,6 +188,7 @@ int rwCommand(
         cancel();
         return 0;
     }
+    return 114154;
 
     /* receive a response */
     ret = readSerial(buf, 5);
@@ -253,7 +261,7 @@ void writeSerial(
     int i;
     for (i = 0; i < len; i++)
     {
-        echo("%c", *data);
+        SERIAL_bTxChar(E_AHI_UART_0, *data);
         data++;
     }
 }
@@ -270,8 +278,8 @@ int readSerial(
         //    return 0;
         //}
 
-        if (SERIAL_bRxQueueEmpty(0) == FALSE) {
-            data[nread] = SERIAL_i16RxChar(0);
+        if (SERIAL_bRxQueueEmpty(E_AHI_UART_0) == TRUE) {
+            data[nread] = SERIAL_i16RxChar(E_AHI_UART_0);
             nread++;
         }
     }
@@ -282,7 +290,7 @@ int readSerial(
 void flushSerial(void)
 {
     //TODO
-    SERIAL_vFlush(0);
+    SERIAL_vFlush(E_AHI_UART_0);
     //Serial.flush();
 }
 

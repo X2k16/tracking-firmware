@@ -127,7 +127,6 @@ static void vInitHardware()
 	ToCoNet_vDebugLevel(0);
 
 	vInitPort();
-	RCS620S_initDevice(&sSerStream);
 
 }
 
@@ -290,7 +289,16 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				sToCoNet_AppContext.u8Channel = sAppData.u8channel;
 				ToCoNet_vRfConfig();
 
-				sendDebugMessage("Hello!");
+
+
+    			sendDebugMessage("RCS init");
+	            RCS620S_initDevice(&sSerStream);
+    			//sendDebugMessage("start polling");
+                //int ret = RCS620S_polling(0xffff);
+                //if (ret == 1)
+    			//	sendDebugMessage("Hello!");
+    			//else
+    			sendDebugMessage("Hoge");
 
 				ToCoNet_Event_SetState(pEv, E_STATE_MEASURING);
 			}

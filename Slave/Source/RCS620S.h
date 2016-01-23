@@ -22,7 +22,7 @@
 
 
     int RCS620S_initDevice(tsFILE* pSer);
-    int polling(uint16_t systemCode);//  = 0xffff);
+    int RCS620S_polling(uint16_t systemCode);//  = 0xffff);
     int cardCommand(
         const uint8_t* command,
         uint8_t commandLen,
