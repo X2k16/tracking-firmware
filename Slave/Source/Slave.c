@@ -26,15 +26,21 @@
 #define CHANNEL  18
 #define CHANNEL_MASK        0x7FFF800 //ch11 to ch26()
 #define CHANNEL_MASK_BASE	11
-// 測定間隔(ms単位)
-#define SLEEP_INTERVAL	30000
+// スリープ時間(ms単位)
+#define SLEEP_INTERVAL 5000
 // Masterの応答がなくなってから再接続を試みるまでの時間(秒単位)
 #define RECONNECT_TIME	35
 
-
 // ポート定義
-#define BOOT_PIN		18	// TWE-EH-S 制御(BOOT)
-#define BYP_PIN		19	// TWE-EH-S 制御(BYP)
+#define PORT_LED_1 3
+#define PORT_LED_2 2
+#define PORT_LED_3 1
+#define PORT_LED_4 0
+#define PORT_SW_1 8
+#define PORT_SW_2 9
+#define PORT_SW_3 10
+#define PORT_FELICA 5
+
 
 // デバッグメッセージ
 #define DBG
@@ -76,6 +82,28 @@ static void vSerialInit() {
 	sSerStream.u8Device = E_AHI_UART_0;
 }
 
+#endif
+
+static void vInitPort()
+{
+	// 使用ポートの設定
+	vPortAsOutput(PORT_LED_1);
+	vPortAsOutput(PORT_LED_2);
+	vPortAsOutput(PORT_LED_3);
+	vPortAsOutput(PORT_LED_4);
+	vPortAsOutput(PORT_FELICA);
+
+	vPortSetLo(PORT_LED_1);
+	vPortSetLo(PORT_LED_2);
+	vPortSetLo(PORT_LED_3);
+	vPortSetLo(PORT_LED_4);
+	vPortSetLo(PORT_FELICA);
+
+	vPortAsInput(PORT_SW_1);
+	vPortAsInput(PORT_SW_2);
+	vPortAsInput(PORT_SW_3);
+}
+
 // ハードウェア初期化
 static void vInitHardware()
 {
@@ -83,14 +111,9 @@ static void vInitHardware()
 	vSerialInit();
 	ToCoNet_vDebugInit(&sSerStream);
 	ToCoNet_vDebugLevel(0);
-
-
-	// 使用ポートの設定
-	//vPortAsOutput(CLK_PIN);
-	//vPortSetLo(CLK_PIN);
+	vInitPort();
 }
 
-#endif
 
 // Masterへの送信実行
 static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 type)
@@ -161,22 +184,24 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			}
 			else {
 				dbg("sleep");
+				vPortSetLo(PORT_LED_3);
 				sAppData.u32parentAddr = 0;
 				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 			}
 			break;
 
 		case E_STATE_CHSCAN_INIT:
-			dbg("E_STATE_CHSCAN_INIT");
 			if (sAppData.u32parentAddr == 0)
 			{
 				if (eEvent == E_EVENT_NEW_STATE) {
-					dbg("master scan...");
+					dbg("E_EVENT_NEW_STATE");
 				}
 
 				//dbg("wait a small tick");
 				if (ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
 					//ToCoNet_vRfConfig();
+					vPortSetHi(PORT_LED_4);
+					dbg("master scan...");
 					ToCoNet_NbScan_bStart(CHANNEL_MASK, 128);
 					ToCoNet_Event_SetState(pEv, E_STATE_CHSCANNING);
 				}
@@ -187,11 +212,12 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			}
 			break;
 		case E_STATE_CHSCANNING:
-			dbg("E_STATE_CHSCANNING");
 			sAppData.u32parentDisconnectTime = 0;
 			if (eEvent == E_EVENT_CHSCAN_FINISH)
 			{
 				dbg("CHSCAN finish. Ch%d selected.", sAppData.u8channel);
+				vPortSetHi(PORT_LED_3);
+				vPortSetLo(PORT_LED_4);
 
 				//Ch変更
 				sToCoNet_AppContext.u8Channel = sAppData.u8channel;
@@ -201,12 +227,14 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			if (eEvent == E_EVENT_CHSCAN_FAIL)
 			{
 				dbg("CHSCAN failed.");
+				vPortSetLo(PORT_LED_4);
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
 
 			//タイムアウト
 			if (ToCoNet_Event_u32TickFrNewState(pEv) > 2500) {
 				dbg("CHSCAN timeout.");
+				vPortSetLo(PORT_LED_4);
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
 
@@ -347,8 +375,7 @@ uint8 cbToCoNet_u8HwInt(uint32 u32DeviceId, uint32 u32ItemBitmap)
 void cbAppColdStart(bool_t bAfterAhiInit)
 {
 	// TWE-EH-S 制御
-	vPortAsOutput(BOOT_PIN);
-	vPortSetLo(BOOT_PIN);
+	vInitPort();
 
 	if (!bAfterAhiInit) {
 		// before AHI init, very first of code.
