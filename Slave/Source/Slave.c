@@ -181,7 +181,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 		case E_STATE_IDLE:
 			dbg("E_STATE_IDLE");
 
-			if (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) {
+			if ((u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) || (u32evarg & EVARG_START_UP_WAKEUP_MASK)) {
 				sAppData.u32parentDisconnectTime = 0;
 				// 空きチャンネルスキャンに入る
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
