@@ -63,10 +63,9 @@ typedef struct {
 static tsFILE sSerStream;          // シリアル用ストリーム
 static tsSerialPortSetup sSerPort; // シリアルポートデスクリプタ
 static uint32 u32Seq;              // 送信パケットのシーケンス番号
-static uint8 u8channel;
 static tsAppData sAppData;
 static uint32 u32BeforeSeq = -1;
-static uint32 sec = 0;
+static uint32 u32LedTimer = 0;
 
 
 // デバッグ出力用に UART を初期化
@@ -113,11 +112,13 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 	//	static int i = 0;
 	if (eEvent == E_EVENT_TICK_SECOND) {
 
-		sec++;
-		if (sec > 2){
-			sec = 0;
-		}
+	}
 
+	if (eEvent == E_EVENT_TICK_TIMER) {
+		u32LedTimer -= 4; //ms
+		if (u32LedTimer >= 0){
+			vPortSetLo(PORT_LED_1);
+		}
 	}
 
 	switch (pEv->eState)
@@ -131,7 +132,6 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				// 起動直後
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
-
 
 			if (eEvent == E_EVENT_TICK_SECOND) {
 				break;
@@ -190,6 +190,7 @@ void cbToCoNet_vMain(void)
 // パケット受信時
 void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 	dbg("packet incoming");
+	u32LedTimer = 100; //ms
 	if (u32BeforeSeq != pRx->u8Seq)
 	{
 		if (pRx->u8Cmd == Felica)
