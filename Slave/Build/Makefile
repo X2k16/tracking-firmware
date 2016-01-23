@@ -44,7 +44,7 @@ include ../Version.mk
 #   ../Source
 #   ../Common/Source
 #
-APPSRC += Slave.c
+APPSRC += Slave.c RCS620S.c
 
 ### Target type
 # アプリケーション(.bin)をビルドするか、ライブラリ(.a)にするか指定します。

@@ -84,6 +84,8 @@ static void vInitHardware()
 	ToCoNet_vDebugInit(&sSerStream);
 	ToCoNet_vDebugLevel(0);
 
+	RCS620S_initDevice(&sSerStream);
+
 
 	// 使用ポートの設定
 	//vPortAsOutput(CLK_PIN);
