@@ -44,9 +44,11 @@
 
 // デバッグメッセージ
 #define DBG
+#undef DBG
 #ifdef DBG
 #define UART_BAUD 115200 // シリアルのボーレート
 #define dbg(...) vfPrintf(&sSerStream, LB __VA_ARGS__)
+//#define dbg(...) {SPRINTF_vRewind(); vfPrintf(SPRINTF_Stream, LB __VA_ARGS__); sendSprintf();}
 #else
 #define dbg(...)
 #undef WAIT_UART_OUTPUT
@@ -54,11 +56,15 @@
 
 #endif
 
+// プロトタイプ宣言
+static bool_t sendSprintf();
+
 // 変数
 static tsFILE sSerStream;          // シリアル用ストリーム
 static tsSerialPortSetup sSerPort; // シリアルポートデスクリプタ
 static uint32 u32Seq;              // 送信パケットのシーケンス番号
 static tsAppData sAppData;
+uint32 u32BeforeSeq = 0xff;
 
 
 #ifdef DBG
@@ -93,6 +99,14 @@ static void vInitPort()
 	vPortAsOutput(PORT_LED_4);
 	vPortAsOutput(PORT_FELICA);
 
+
+	vPortSetHi(PORT_LED_1);
+	vPortSetHi(PORT_LED_2);
+	vPortSetHi(PORT_LED_3);
+	vPortSetHi(PORT_LED_4);
+
+	vWait(0xfffff);
+
 	vPortSetLo(PORT_LED_1);
 	vPortSetLo(PORT_LED_2);
 	vPortSetLo(PORT_LED_3);
@@ -118,8 +132,51 @@ static void vInitHardware()
 }
 
 
+static bool_t sendDebugMessage(char *message){
+	tsTxDataApp tsTx;
+	uint8 size;
+
+	if(sAppData.u32parentAddr == 0){
+		return;
+	}
+
+	memset(&tsTx, 0, sizeof(tsTxDataApp));
+
+	tsTx.u32SrcAddr = ToCoNet_u32GetSerial();
+	tsTx.u32DstAddr = sAppData.u32parentAddr;
+
+	tsTx.bAckReq = TRUE;
+	tsTx.u8Retry = 0x01; // 送信失敗時は1回再送
+	tsTx.u8CbId = u32Seq & 0xFF;
+	tsTx.u8Seq = u32Seq & 0xFF;
+	tsTx.u8Cmd = PACKET_CMD_DEBUG;
+
+	size = strlen(message);
+	if(size > 98){
+		size = 98;
+		message[97] = 0;
+	}
+
+	memcpy(tsTx.auData, message, size);
+	tsTx.u8Len = size;
+	dbg("u8Len: %d", tsTx.u8Len);
+	u32Seq++;
+
+	// 送信
+	return ToCoNet_bMacTxReq(&tsTx);
+}
+
+
+static bool_t sendSprintf(){
+	char *message = SPRINTF_pu8GetBuff();
+	message[97] = 0;
+	return sendDebugMessage(message);
+}
+
+
+
 // Masterへの送信実行
-static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 type)
+static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 u8Cmd)
 {
 	tsTxDataApp tsTx;
 
@@ -133,7 +190,7 @@ static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 type)
 	tsTx.u8Retry = 0x01; // 送信失敗時は1回再送
 	tsTx.u8CbId = u32Seq & 0xFF;
 	tsTx.u8Seq = u32Seq & 0xFF;
-	tsTx.u8Cmd = Felica;
+	tsTx.u8Cmd = u8Cmd;
 
 
 	memcpy(tsTx.auData, payload, size);
@@ -174,18 +231,26 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 		}
 	}
 
+	if (eEvent == E_EVENT_TICK_TIMER) {
+		sAppData.u8tick_ms += 4;
+	}
+
 	// ステート処理
 	switch (pEv->eState) {
 		// アイドル状態
 		case E_STATE_IDLE:
 			dbg("E_STATE_IDLE");
 
-			if (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) {
+			if (eEvent == E_EVENT_START_UP){
+
+				if (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) {
+				}
+
 				sAppData.u32parentDisconnectTime = 0;
 				// 空きチャンネルスキャンに入る
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
-			}
-			else {
+
+			}	else {
 				dbg("sleep");
 				vPortSetLo(PORT_LED_3);
 				sAppData.u32parentAddr = 0;
@@ -202,7 +267,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 				//dbg("wait a small tick");
 				if (ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
-					//ToCoNet_vRfConfig();
+					ToCoNet_vRfConfig();
 					vPortSetHi(PORT_LED_4);
 					dbg("master scan...");
 					ToCoNet_NbScan_bStart(CHANNEL_MASK, 128);
@@ -221,10 +286,12 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				dbg("CHSCAN finish. Ch%d selected.", sAppData.u8channel);
 				vPortSetHi(PORT_LED_3);
 				vPortSetLo(PORT_LED_4);
-
 				//Ch変更
 				sToCoNet_AppContext.u8Channel = sAppData.u8channel;
 				ToCoNet_vRfConfig();
+
+				sendDebugMessage("Hello!");
+
 				ToCoNet_Event_SetState(pEv, E_STATE_MEASURING);
 			}
 			if (eEvent == E_EVENT_CHSCAN_FAIL)
@@ -295,6 +362,19 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx)
 		pRx->u32Tick & 0xFFFF);
 	// ToDo: Ping応答
 #endif
+
+	if (u32BeforeSeq != pRx->u8Seq)
+	{
+		if (pRx->u8Cmd == PACKET_CMD_KEEP_ALIVE)
+		{
+			sAppData.u32parentDisconnectTime = 0;
+			dbg("Keep-Alive was received.");
+		}
+
+		u32BeforeSeq = pRx->u8Seq;
+	}
+
+
 	return;
 }
 

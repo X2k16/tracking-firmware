@@ -30,15 +30,12 @@
 //0x1FF800 //ch11 to ch20
 
 // ポート定義
-#define DO1		18
-#define DO2		19
-#define DO3		4
-#define DO4		9 // デジタル出力 4
+#define PORT_LED_1 1
 #define UART_BAUD 115200 // シリアルのボーレート
 
 // デバッグメッセージ
 #undef DBG
-//#define DBG
+#define DBG
 #ifdef DBG
 #define dbg(...) vfPrintf(&sSerStream, LB __VA_ARGS__)
 #else
@@ -55,54 +52,11 @@ typedef struct {
 	// Random count generation
 	uint32 u32randcount; // not used in this application
 
-	// OSC calibration
-	uint32 u32RcOscError;
-
-	// frame sequence number
-	uint32 u32FrameCount;
-
-	// CCA fail count
-	uint16 u16CCAfail;
-
-	// PER
-	uint16 u16PerCount;
-	uint16 u16PerCountMax;
-	uint16 u16PerSuccess;
-	uint16 u16PerSuccessAppAck;
-	uint8 bPerFinish;
-	uint8 bPerAppAckMode;
-	uint8 u8PerLqiLast;
-	uint32 u32PerLqiSum;
-
 	// PER MAC SETTING
-	uint8 u8retry;
 	uint8 u8channel;
-	uint8 u8Power;
 
-	uint8 u8payload;
+	uint16 u16timerSecond;
 
-	// TICK COUNT
-	uint8 u8tick_ms;
-
-	// Tx Finish Flag
-	uint8 bTxBusy;
-
-	// 送信中のシーケンス番号
-	uint8 u8TxSeq;
-
-	// Child nodes
-	uint8 u8ChildFound;
-	uint8 u8ChildSelect;
-	tsToCoNet_NbScan_Entitiy asChilds[20];
-	uint32 u32ChildAddr;
-	uint8 u8ChildConfCh;
-
-	// Energy Scan
-	uint8 u8ChEnergy;
-	uint8 u8ChEnergyMax;
-
-	// Disp Lang
-	uint8 u8Lang;
 } tsAppData;
 
 
@@ -111,10 +65,9 @@ typedef struct {
 static tsFILE sSerStream;          // シリアル用ストリーム
 static tsSerialPortSetup sSerPort; // シリアルポートデスクリプタ
 static uint32 u32Seq;              // 送信パケットのシーケンス番号
-static uint8 u8channel;
 static tsAppData sAppData;
 static uint32 u32BeforeSeq = -1;
-static uint32 sec = 0;
+static uint32 u32LedTimer = 0;
 
 
 // デバッグ出力用に UART を初期化
@@ -137,6 +90,13 @@ static void vSerialInit() {
 	sSerStream.u8Device = E_AHI_UART_0;
 }
 
+static void vInitPort()
+{
+	// 使用ポートの設定
+	vPortAsOutput(PORT_LED_1);
+	vPortSetLo(PORT_LED_1);
+}
+
 // ハードウェア初期化
 static void vInitHardware()
 {
@@ -145,24 +105,49 @@ static void vInitHardware()
 	ToCoNet_vDebugInit(&sSerStream);
 	ToCoNet_vDebugLevel(0);
 
-
-	// 使用ポートの設定
-	vPortAsOutput(DO4);
-	vPortSetLo(DO4);
+	vInitPort();
 }
+
+
+// Keep-Aliveの送信
+static bool_t sendKeepAlive(){
+	tsTxDataApp tsTx;
+	memset(&tsTx, 0, sizeof(tsTxDataApp));
+
+	tsTx.u32SrcAddr = ToCoNet_u32GetSerial();
+	tsTx.u32DstAddr = TOCONET_MAC_ADDR_BROADCAST;
+
+	tsTx.bAckReq = FALSE;
+	tsTx.u8Retry = 0x00; // 送信失敗時は1回再送
+	tsTx.u8CbId = u32Seq & 0xFF;
+	tsTx.u8Seq = u32Seq & 0xFF;
+	tsTx.u8Cmd = PACKET_CMD_KEEP_ALIVE;
+	tsTx.u8Len = 1;
+	dbg("u8Len: %d", tsTx.u8Len);
+	u32Seq++;
+
+	// 送信
+	return ToCoNet_bMacTxReq(&tsTx);
+}
+
+
 
 // ユーザ定義のイベントハンドラ
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 {
 	//	static int i = 0;
 	if (eEvent == E_EVENT_TICK_SECOND) {
-		// DO4 の Lo / Hi をトグル
-		sec++;
-		if (sec > 2){
-			vPortSetLo(DO4);
-			sec = 0;
+		sAppData.u16timerSecond += 1;
+		if((sAppData.u16timerSecond % 5)== 0){
+			sendKeepAlive();
 		}
+	}
 
+	if (eEvent == E_EVENT_TICK_TIMER) {
+		u32LedTimer -= 4; //ms
+		if (u32LedTimer >= 0){
+			vPortSetLo(PORT_LED_1);
+		}
 	}
 
 	switch (pEv->eState)
@@ -172,12 +157,10 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			{
 				dbg("** Master init**");
 				echo("{ \"status\": \"initialize\" }");
-				vPortSetLo(DO4);
 				//sendBroadcast();
 				// 起動直後
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
-
 
 			if (eEvent == E_EVENT_TICK_SECOND) {
 				break;
@@ -219,6 +202,8 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 			break;
 
+		default:
+			break;
 	}
 }
 
@@ -236,20 +221,31 @@ void cbToCoNet_vMain(void)
 // パケット受信時
 void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 	dbg("packet incoming");
+	u32LedTimer = 100; //ms
 	if (u32BeforeSeq != pRx->u8Seq)
 	{
-		if (pRx->u8Cmd == Felica)
+
+
+		if (pRx->u8Cmd == PACKET_CMD_DEBUG)
 		{
-			char buf[64];
+			char buf[99];
+			memcpy(buf, pRx->auData, pRx->u8Len);
+			buf[pRx->u8Len] = 0;
+			echo("{ \"type\": \"debug\", \"macaddress\": \"%08X\", \"message\": \"%s\"}", pRx->u32SrcAddr, buf);
+		}
+
+		if (pRx->u8Cmd == PACKET_CMD_FELICA)
+		{
 			tsFelicaData data;
 
 			memcpy((void *)&data, pRx->auData, pRx->u8Len);
 
-			echo("{ \"macaddress\": \"%08X\", \"idm\": %d }", pRx->u32SrcAddr, data.IDm);
+			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": %d }", pRx->u32SrcAddr, data.IDm);
 			WAIT_UART_OUTPUT(E_AHI_UART_0);
-			u32BeforeSeq = pRx->u8Seq;
-			vPortSetHi(DO4);
 		}
+
+		u32BeforeSeq = pRx->u8Seq;
+
 	}
 
 }
@@ -291,6 +287,8 @@ void cbToCoNet_vNwkEvent(teEvent eEvent, uint32 u32arg)
 				ToCoNet_Event_Process(E_EVENT_CHSCAN_FINISH, 0, vProcessEvCore);
 
 			}
+			break;
+		default:
 			break;
 	}
 	return;
