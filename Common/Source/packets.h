@@ -10,9 +10,4 @@ typedef enum
 	PACKET_CMD_FELICA
 } tePacketCmdApp;
 
-typedef struct
-{
-	char IDm[8];
-} tsFelicaData;
-
 #endif /* PACKETS_H_ */
