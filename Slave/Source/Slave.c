@@ -346,19 +346,41 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 			break;
 
+		case E_STATE_NFC_RESET:
+			if (eEvent == E_EVENT_NEW_STATE) {
+				sendDebugMessage("NFC Reset");
+				vPortSetLo(PORT_FELICA);
+			}else if(eEvent == E_EVENT_TICK_TIMER){
+				if (ToCoNet_Event_u32TickFrNewState(pEv) > 4000){
+					ToCoNet_Event_SetState(pEv, E_STATE_NFC_INIT);
+				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 2000){
+					vPortSetHi(PORT_FELICA);
+				}
+
+			}
+			break;
+
+
 		case E_STATE_NFC_INIT:
 			if (eEvent == E_EVENT_NEW_STATE) {
+				sendDebugMessage("NFC Init");
+				sAppData.u8tick_ms = 0;
 				u8NfcInitStage = 1;
 				sendFelicaCommand((uint8*)"\xd4\x32\x02\x00\x00\x00", 6);
 			}else if(eEvent == E_EVENT_NFC_RESPONSE){
+				sAppData.u8tick_ms = 0;
 				if(u8NfcInitStage == 1)
 					sendFelicaCommand((uint8*)"\xd4\x32\x05\x00\x00\x00", 6);
 				else if(u8NfcInitStage == 2)
 					sendFelicaCommand((uint8*)"\xd4\x32\x81\xb7", 4);
 				else{
+					sAppData.u8tick_ms = 0;
 					ToCoNet_Event_SetState(pEv, E_STATE_POLLING);
 				}
 				u8NfcInitStage++;
+			}
+			if(eEvent == E_EVENT_TICK_TIMER && sAppData.u8tick_ms > 200){
+				ToCoNet_Event_SetState(pEv, E_STATE_NFC_RESET);
 			}
 
 			break;
@@ -369,6 +391,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			}
 
 			if(eEvent == E_EVENT_NFC_RESPONSE){
+				sAppData.u8tick_ms = 0;
 				if(felicaResponse.length==22){
 					vPortSetHi(PORT_LED_1);
 					if(memcmp(au8BeforIdm, felicaResponse.data+6, 8) != 0){
@@ -379,6 +402,8 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 					vPortSetLo(PORT_LED_1);
 					memset(au8BeforIdm, 0, 8);
 				}
+			}else if(eEvent == E_EVENT_TICK_TIMER && sAppData.u8tick_ms > 200){
+				ToCoNet_Event_SetState(pEv, E_STATE_NFC_RESET);
 			}
 
 			break;
