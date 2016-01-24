@@ -12,3 +12,9 @@ typedef struct {
 	uint8 u8tick_ms;
 
 } tsAppData;
+
+
+typedef struct {
+	uint16 length;
+	uint8 data[128];
+} tsFelicaResponse;

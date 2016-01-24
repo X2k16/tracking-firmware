@@ -35,7 +35,7 @@
 
 // デバッグメッセージ
 #undef DBG
-#define DBG
+//#define DBG
 #ifdef DBG
 #define dbg(...) vfPrintf(&sSerStream, LB __VA_ARGS__)
 #else
@@ -123,7 +123,6 @@ static bool_t sendKeepAlive(){
 	tsTx.u8Seq = u32Seq & 0xFF;
 	tsTx.u8Cmd = PACKET_CMD_KEEP_ALIVE;
 	tsTx.u8Len = 1;
-	dbg("u8Len: %d", tsTx.u8Len);
 	u32Seq++;
 
 	// 送信
@@ -138,7 +137,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 	//	static int i = 0;
 	if (eEvent == E_EVENT_TICK_SECOND) {
 		sAppData.u16timerSecond += 1;
-		if((sAppData.u16timerSecond % 5)== 0){
+		if((sAppData.u16timerSecond % 3)== 0){
 			sendKeepAlive();
 		}
 	}
@@ -218,9 +217,19 @@ void cbToCoNet_vMain(void)
 	return;
 }
 
+
+void idm2Hex(uint8 *idm, uint8 *buf){
+	uint8 i;
+	for(i=0; i<8;i++){
+		buf[i*2] = (((idm[i]>>4)>9) ? ('A'-10) : '0') + (idm[i]>>4);
+		buf[i*2+1] = (((idm[i]&0x0f)>9) ? ('A'-10) : '0') + (idm[i]&0x0f);
+	}
+}
+
+
 // パケット受信時
 void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
-	dbg("packet incoming");
+	//dbg("packet incoming");
 	u32LedTimer = 100; //ms
 	if (u32BeforeSeq != pRx->u8Seq)
 	{
@@ -236,11 +245,11 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 
 		if (pRx->u8Cmd == PACKET_CMD_FELICA)
 		{
-			tsFelicaData data;
-
-			memcpy((void *)&data, pRx->auData, pRx->u8Len);
-
-			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": %d }", pRx->u32SrcAddr, data.IDm);
+			uint8 idm[8];
+			uint8 buf[17] = {0};
+			memcpy(idm, pRx->auData, 8);
+			idm2Hex(idm, buf);
+			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": \"%s\" }", pRx->u32SrcAddr, buf);
 			WAIT_UART_OUTPUT(E_AHI_UART_0);
 		}
 
@@ -253,7 +262,7 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 // パケット送信完了時
 void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus)
 {
-	dbg(">> SEND %s seq=%u", bStatus ? "OK" : "NG", u32Seq);
+	//dbg(">> SEND %s seq=%u", bStatus ? "OK" : "NG", u32Seq);
 	//E_ORDER_KICK イベントを通知
 	ToCoNet_Event_Process(E_ORDER_KICK, 0, vProcessEvCore);
 	return;

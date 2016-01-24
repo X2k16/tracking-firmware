@@ -10,6 +10,7 @@
 #include "utils.h"				// ペリフェラル API のラッパなど
 #include "serial.h"				// シリアル用
 #include "sprintf.h"			// SPRINTF 用
+#define vfPutc(s, c) SERIAL_bTxChar((s)->u8Device, c)
 
 #define ToCoNet_USE_MOD_NBSCAN // Neighbour scan module
 #undef ToCoNet_USE_MOD_NBSCAN_SLAVE
@@ -27,9 +28,9 @@
 #define CHANNEL_MASK        0x7FFF800 //ch11 to ch26()
 #define CHANNEL_MASK_BASE	11
 // スリープ時間(ms単位)
-#define SLEEP_INTERVAL 5000
+#define SLEEP_INTERVAL 0
 // Masterの応答がなくなってから再接続を試みるまでの時間(秒単位)
-#define RECONNECT_TIME	35
+#define RECONNECT_TIME	10
 
 // ポート定義
 #define PORT_LED_1 3
@@ -42,11 +43,13 @@
 #define PORT_FELICA 5
 
 
+
+#define UART_BAUD 115200 // シリアルのボーレート
+
 // デバッグメッセージ
 #define DBG
 #undef DBG
 #ifdef DBG
-#define UART_BAUD 115200 // シリアルのボーレート
 #define dbg(...) vfPrintf(&sSerStream, LB __VA_ARGS__)
 //#define dbg(...) {SPRINTF_vRewind(); vfPrintf(SPRINTF_Stream, LB __VA_ARGS__); sendSprintf();}
 #else
@@ -58,6 +61,7 @@
 
 // プロトタイプ宣言
 static bool_t sendSprintf();
+static void sendHexDebug(uint8 *data, uint8 size);
 
 // 変数
 static tsFILE sSerStream;          // シリアル用ストリーム
@@ -65,9 +69,14 @@ static tsSerialPortSetup sSerPort; // シリアルポートデスクリプタ
 static uint32 u32Seq;              // 送信パケットのシーケンス番号
 static tsAppData sAppData;
 uint32 u32BeforeSeq = 0xff;
+tsFelicaResponse felicaResponse;
 
+uint8 u8NfcInitStage = 0;
+uint8 au8FelicaBuffer[128];
+uint8 u8FelicaBufferIndex = 0;
+uint8 au8BeforIdm[8] = {0};
+uint8 u8ScanFailuer = 0;
 
-#ifdef DBG
 // デバッグ出力用に UART を初期化
 static void vSerialInit() {
 	static uint8 au8SerialTxBuffer[96];
@@ -88,7 +97,6 @@ static void vSerialInit() {
 	sSerStream.u8Device = E_AHI_UART_0;
 }
 
-#endif
 
 static void vInitPort()
 {
@@ -105,7 +113,7 @@ static void vInitPort()
 	vPortSetHi(PORT_LED_3);
 	vPortSetHi(PORT_LED_4);
 
-	vWait(0xfffff);
+	vWait(0x3ffff);
 
 	vPortSetLo(PORT_LED_1);
 	vPortSetLo(PORT_LED_2);
@@ -127,6 +135,57 @@ static void vInitHardware()
 	ToCoNet_vDebugLevel(0);
 	vInitPort();
 }
+
+
+static void writeSerial(uint8 *buf, uint16 size){
+	uint16 i;
+	for(i=0; i<size; i++){
+		vPutChar(&sSerStream, buf[i]);
+	}
+	//sendHexDebug(buf, size);
+}
+
+static uint8 calcDCS(uint8 *data, uint16 len)
+{
+  uint8 sum = 0;
+	uint16 i;
+
+  for (i = 0; i < len; i++) {
+      sum += data[i];
+  }
+  return (uint8)-(sum & 0xff);
+}
+
+static void sendFelicaCommand(uint8 *command, uint16 commandLen){
+	uint8 buf[9];
+
+	uint8 dcs = calcDCS(command, commandLen);
+
+	/* transmit the command */
+	buf[0] = 0x00;
+	buf[1] = 0x00;
+	buf[2] = 0xff;
+	if (commandLen <= 255) {
+			/* normal frame */
+			buf[3] = commandLen;
+			buf[4] = (uint8)-buf[3];
+			writeSerial(buf, 5);
+	} else {
+			/* extended frame */
+			buf[3] = 0xff;
+			buf[4] = 0xff;
+			buf[5] = (uint8)((commandLen >> 8) & 0xff);
+			buf[6] = (uint8)((commandLen >> 0) & 0xff);
+			buf[7] = (uint8)-(buf[5] + buf[6]);
+			writeSerial(buf, 8);
+	}
+	writeSerial(command, commandLen);
+	buf[0] = dcs;
+	buf[1] = 0x00;
+	writeSerial(buf, 2);
+	WAIT_UART_OUTPUT(E_AHI_UART_0);
+}
+
 
 
 static bool_t sendDebugMessage(char *message){
@@ -164,53 +223,35 @@ static bool_t sendDebugMessage(char *message){
 }
 
 
-static bool_t sendSprintf(){
-	char *message = SPRINTF_pu8GetBuff();
-	message[97] = 0;
-	return sendDebugMessage(message);
-}
-
 
 
 // Masterへの送信実行
-static bool_t sendToMaster(uint32 addr, void *payload, int size, uint8 u8Cmd)
+static bool_t sendIdm(uint8 *idm)
 {
 	tsTxDataApp tsTx;
 
 	memset(&tsTx, 0, sizeof(tsTxDataApp));
 
 	tsTx.u32SrcAddr = ToCoNet_u32GetSerial();
-	tsTx.u32DstAddr = addr;
+	tsTx.u32DstAddr = sAppData.u32parentAddr;
 	//tsTx.u32DstAddr = TOCONET_MAC_ADDR_BROADCAST;
 
 	tsTx.bAckReq = TRUE;
-	tsTx.u8Retry = 0x01; // 送信失敗時は1回再送
+	tsTx.u8Retry = 0x03; // 送信失敗時は3回再送
 	tsTx.u8CbId = u32Seq & 0xFF;
 	tsTx.u8Seq = u32Seq & 0xFF;
-	tsTx.u8Cmd = u8Cmd;
+	tsTx.u8Cmd = PACKET_CMD_FELICA;
 
-
-	memcpy(tsTx.auData, payload, size);
-	tsTx.u8Len = size;
-	dbg("u8Len: %d", tsTx.u8Len);
+	memcpy(tsTx.auData, idm, 8);
+	tsTx.u8Len = 8;
 	u32Seq++;
 
 	// 送信
+	vPortSetHi(PORT_LED_2);
 	return ToCoNet_bMacTxReq(&tsTx);
 }
 
-//*/
-static tsFelicaData getFelicaData()
-{
-	char idm[8];
-	tsFelicaData payload;
 
-	// get IDm
-	// TODO
-	memcpy(payload.IDm, idm, sizeof(idm));
-
-	return payload;
-}
 
 // ユーザ定義のイベントハンドラ
 static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
@@ -242,38 +283,33 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 				if (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) {
 				}
-
+				u8ScanFailuer = 0;
 				sAppData.u32parentDisconnectTime = 0;
 				// 空きチャンネルスキャンに入る
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 
 			}	else {
-				dbg("sleep");
-				vPortSetLo(PORT_LED_3);
-				sAppData.u32parentAddr = 0;
 				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 			}
 			break;
 
 		case E_STATE_CHSCAN_INIT:
-			if (sAppData.u32parentAddr == 0)
-			{
-				if (eEvent == E_EVENT_NEW_STATE) {
-					dbg("E_EVENT_NEW_STATE");
+			if (eEvent == E_EVENT_NEW_STATE) {
+				dbg("E_EVENT_NEW_STATE");
+				if(u8ScanFailuer > 5){
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 				}
-
-				//dbg("wait a small tick");
-				if (ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
-					ToCoNet_vRfConfig();
-					vPortSetHi(PORT_LED_4);
-					dbg("master scan...");
-					ToCoNet_NbScan_bStart(CHANNEL_MASK, 128);
-					ToCoNet_Event_SetState(pEv, E_STATE_CHSCANNING);
-				}
+				vPortSetLo(PORT_LED_3);
+				vPortSetHi(PORT_FELICA);
 			}
-			else{
-				// Chスキャン済み
-				ToCoNet_Event_SetState(pEv, E_STATE_MEASURING);
+
+			//dbg("wait a small tick");
+			if (ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
+				ToCoNet_vRfConfig();
+				vPortSetHi(PORT_LED_4);
+				dbg("master scan...");
+				ToCoNet_NbScan_bStart(CHANNEL_MASK, 128);
+				ToCoNet_Event_SetState(pEv, E_STATE_CHSCANNING);
 			}
 			break;
 		case E_STATE_CHSCANNING:
@@ -289,12 +325,13 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 				sendDebugMessage("Hello!");
 
-				ToCoNet_Event_SetState(pEv, E_STATE_MEASURING);
+				ToCoNet_Event_SetState(pEv, E_STATE_NFC_INIT);
 			}
 			if (eEvent == E_EVENT_CHSCAN_FAIL)
 			{
 				dbg("CHSCAN failed.");
 				vPortSetLo(PORT_LED_4);
+				u8ScanFailuer++;
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
 
@@ -308,16 +345,57 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			WAIT_UART_OUTPUT(E_AHI_UART_0);
 
 			break;
-		case E_STATE_TRANSMITTING:
-		    // TODO
+
+		case E_STATE_NFC_INIT:
+			if (eEvent == E_EVENT_NEW_STATE) {
+				u8NfcInitStage = 1;
+				sendFelicaCommand((uint8*)"\xd4\x32\x02\x00\x00\x00", 6);
+			}else if(eEvent == E_EVENT_NFC_RESPONSE){
+				if(u8NfcInitStage == 1)
+					sendFelicaCommand((uint8*)"\xd4\x32\x05\x00\x00\x00", 6);
+				else if(u8NfcInitStage == 2)
+					sendFelicaCommand((uint8*)"\xd4\x32\x81\xb7", 4);
+				else{
+					ToCoNet_Event_SetState(pEv, E_STATE_POLLING);
+				}
+				u8NfcInitStage++;
+			}
+
+			break;
+
+		case E_STATE_POLLING:
+			if (eEvent == E_EVENT_NEW_STATE || eEvent == E_EVENT_NFC_RESPONSE) {
+				sendFelicaCommand((uint8*)"\xd4\x4a\x01\x01\x00\xff\xff\x00\x00", 9);
+			}
+
+			if(eEvent == E_EVENT_NFC_RESPONSE){
+				if(felicaResponse.length==22){
+					vPortSetHi(PORT_LED_1);
+					if(memcmp(au8BeforIdm, felicaResponse.data+6, 8) != 0){
+						sendIdm(felicaResponse.data+6);
+						memcpy(au8BeforIdm, felicaResponse.data+6, 8);
+					}
+				}else{
+					vPortSetLo(PORT_LED_1);
+					memset(au8BeforIdm, 0, 8);
+				}
+			}
+
 			break;
 
 		case E_STATE_APP_SLEEP:
 			dbg("E_STATE_APP_SLEEP");
 			if (eEvent == E_EVENT_NEW_STATE) {
 				dbg("Sleeping...\r\n");
+				vPortSetLo(PORT_LED_1);
+				vPortSetLo(PORT_LED_2);
+				vPortSetLo(PORT_LED_3);
+				vPortSetLo(PORT_LED_4);
+				vPortSetLo(PORT_FELICA);
+				sAppData.u32parentAddr = 0;
 				WAIT_UART_OUTPUT(E_AHI_UART_0);
-				ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, SLEEP_INTERVAL, FALSE, FALSE);
+				vAHI_DioWakeEnable(1<<PORT_SW_1, 0);
+				ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, SLEEP_INTERVAL, FALSE, TRUE);
 			}
 			break;
 
@@ -325,6 +403,82 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			break;
 	}
 
+}
+
+static void sendHexDebug(uint8 *data, uint8 size){
+	uint8 debug[40] = {0};
+	uint8 i;
+	uint8 c;
+	for(i=0; i<size; i++){
+		c = data[i];
+		debug[2*i] = ((c>>4)>9 ? ('A'-10) : '0')  + (c>>4);
+		debug[2*i+1] = ((c&0x0f)>9 ? ('A'-10)  : '0') + (c&0x0f);
+	}
+	sendDebugMessage(debug);
+
+}
+
+
+
+void vHandleSerialInput(){
+	uint8 i;
+	if (!SERIAL_bRxQueueEmpty(sSerPort.u8SerialPort)) {
+		// FIFOキューから１バイトずつ取り出して処理する。
+
+		int16 i16Char;
+		uint8 u8Char;
+		i16Char = SERIAL_i16RxChar(sSerPort.u8SerialPort);
+		u8Char = (uint8)i16Char;
+
+		au8FelicaBuffer[u8FelicaBufferIndex] = u8Char;
+
+		if(
+				(u8FelicaBufferIndex == 0 && u8Char != 0x00) ||
+				(u8FelicaBufferIndex == 1 && u8Char != 0x00) ||
+				(u8FelicaBufferIndex == 2 && u8Char != 0xff)
+			){
+			u8FelicaBufferIndex = 0;
+		}else{
+			u8FelicaBufferIndex++;
+		}
+
+		if(u8FelicaBufferIndex == 6){
+
+			if(au8FelicaBuffer[3] == 0x00 && au8FelicaBuffer[4] == 0xff && au8FelicaBuffer[5] == 0x00){
+				//ACK
+				u8FelicaBufferIndex = 0;
+				//sendDebugMessage("ACK");
+				ToCoNet_Event_Process(E_EVENT_NFC_ACK, 0, vProcessEvCore);
+			}else if(((au8FelicaBuffer[3] + au8FelicaBuffer[4]) & 0xff) != 0){
+				// エラー
+				u8FelicaBufferIndex = 0;
+				//sendDebugMessage("LE");
+			}else{
+				felicaResponse.length = au8FelicaBuffer[3];
+			}
+		}
+
+
+		if(u8FelicaBufferIndex == (5 + felicaResponse.length + 2)){
+			//sendHexDebug(au8FelicaBuffer,u8FelicaBufferIndex);
+
+			for(i=0; i<felicaResponse.length; i++){
+				felicaResponse.data[i] = au8FelicaBuffer[5+i];
+			}
+			uint8 dcs = calcDCS(felicaResponse.data, felicaResponse.length);
+			if(dcs == au8FelicaBuffer[5+felicaResponse.length] && au8FelicaBuffer[5+felicaResponse.length+1] == 0x00){
+				// DCS/フッタ一致
+				//sendHexDebug(felicaResponse.data, felicaResponse.length);
+				ToCoNet_Event_Process(E_EVENT_NFC_RESPONSE, 0, vProcessEvCore);
+			}else{
+				//sendDebugMessage("DCS M");
+			}
+			u8FelicaBufferIndex = 0;
+		}
+
+
+
+  }
 }
 
 
@@ -335,14 +489,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 // 割り込み発生後に随時呼び出される
 void cbToCoNet_vMain(void)
 {
-	if (ToCoNet_Event_eGetState(vProcessEvCore) == E_STATE_MEASURING)
-	{
-		// TODO: read card IDm
-		ToCoNet_Event_Process(E_EVENT_MEASURE_FINISH, 0, vProcessEvCore);
-	}
-
-
-	return;
+	vHandleSerialInput();
 }
 
 // パケット受信時
@@ -380,10 +527,14 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 	dbg("\n\r[TX CbID:%02x Status:%s]", u8CbId, bStatus ? "OK" : "Err");
 	if (bStatus)
 	{
+
+		vPortSetLo(PORT_LED_2);
+		vPortSetLo(PORT_LED_4);
 		ToCoNet_Event_Process(E_EVENT_TRANSMIT_FINISH, 0, vProcessEvCore);
 	}
 	else
 	{
+		vPortSetHi(PORT_LED_4);
 		ToCoNet_Event_Process(E_EVENT_TRANSMIT_FAIL, 0, vProcessEvCore);
 	}
 	return;
@@ -468,9 +619,7 @@ void cbAppColdStart(bool_t bAfterAhiInit)
 			FALSE, FALSE, FALSE, FALSE);
 		// SPRINTF 初期化
 
-#ifdef DBG
 		SPRINTF_vInit128();
-#endif
 
 		// clear application context
 		memset(&sAppData, 0x00, sizeof(sAppData));
@@ -483,9 +632,7 @@ void cbAppColdStart(bool_t bAfterAhiInit)
 		ToCoNet_Event_Register_State_Machine(vProcessEvCore);
 
 		// ハードウェア初期化
-#ifdef DBG
 		vInitHardware();
-#endif
 
 		// ToCoNet configuration
 		sToCoNet_AppContext.u32AppId = APP_ID;
@@ -520,9 +667,7 @@ void cbAppWarmStart(bool_t bAfterAhiInit)
 	if (!bAfterAhiInit) {
 	}
 	else {
-#ifdef DBG
 		vInitHardware();
-#endif
 		ToCoNet_vMacStart();
 	}
 	return;
