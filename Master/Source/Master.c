@@ -155,7 +155,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			if (eEvent == E_EVENT_START_UP)
 			{
 				dbg("** Master init**");
-				echo("{ \"status\": \"initialize\" }");
+				echo("{ \"type\": \"initialize\" }\r\n");
 				//sendBroadcast();
 				// 起動直後
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
@@ -184,7 +184,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			if (eEvent == E_EVENT_CHSCAN_FINISH){
 				//エナジースキャンの完了
 				dbg("\n\rCh%d is selected.", sAppData.u8channel);
-				echo("{ \"status\": \"channel selected\", \"channel\": %d }", sAppData.u8channel);
+				echo("{ \"type\": \"channel\", \"channel\": %d }\r\n", sAppData.u8channel);
 
 				WAIT_UART_OUTPUT(E_AHI_UART_0);
 				//Ch変更
@@ -195,7 +195,6 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 			if (ToCoNet_Event_u32TickFrNewState(pEv) > 2000) {
 				dbg("timeout.", sAppData.u8channel);
-				echo("{ \"status\": \"timeout\"");
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
 
@@ -240,7 +239,7 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 			char buf[99];
 			memcpy(buf, pRx->auData, pRx->u8Len);
 			buf[pRx->u8Len] = 0;
-			echo("{ \"type\": \"debug\", \"macaddress\": \"%08X\", \"message\": \"%s\"}", pRx->u32SrcAddr, buf);
+			echo("{ \"type\": \"debug\", \"macaddress\": \"%08X\", \"message\": \"%s\"}\r\n", pRx->u32SrcAddr, buf);
 		}
 
 		if (pRx->u8Cmd == PACKET_CMD_FELICA)
@@ -249,7 +248,7 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 			uint8 buf[17] = {0};
 			memcpy(idm, pRx->auData, 8);
 			idm2Hex(idm, buf);
-			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": \"%s\" }", pRx->u32SrcAddr, buf);
+			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": \"%s\" }\r\n", pRx->u32SrcAddr, buf);
 			WAIT_UART_OUTPUT(E_AHI_UART_0);
 		}
 
