@@ -45,6 +45,7 @@
 
 
 #define UART_BAUD 115200 // シリアルのボーレート
+#define UART_PORT E_AHI_UART_1
 
 // デバッグメッセージ
 #define DBG
@@ -89,12 +90,12 @@ static void vSerialInit() {
 	sSerPort.u16AHI_UART_RTS_HIGH = 0xffff;
 	sSerPort.u16SerialRxQueueSize = sizeof(au8SerialRxBuffer);
 	sSerPort.u16SerialTxQueueSize = sizeof(au8SerialTxBuffer);
-	sSerPort.u8SerialPort = E_AHI_UART_0;
+	sSerPort.u8SerialPort = UART_PORT;
 	sSerPort.u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
 	SERIAL_vInit(&sSerPort);
 
 	sSerStream.bPutChar = SERIAL_bTxChar;
-	sSerStream.u8Device = E_AHI_UART_0;
+	sSerStream.u8Device = UART_PORT;
 }
 
 
@@ -183,7 +184,7 @@ static void sendFelicaCommand(uint8 *command, uint16 commandLen){
 	buf[0] = dcs;
 	buf[1] = 0x00;
 	writeSerial(buf, 2);
-	WAIT_UART_OUTPUT(E_AHI_UART_0);
+	WAIT_UART_OUTPUT(UART_PORT);
 }
 
 
@@ -342,7 +343,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
 
-			WAIT_UART_OUTPUT(E_AHI_UART_0);
+			WAIT_UART_OUTPUT(UART_PORT);
 
 			break;
 
@@ -418,7 +419,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				vPortSetLo(PORT_LED_4);
 				vPortSetLo(PORT_FELICA);
 				sAppData.u32parentAddr = 0;
-				WAIT_UART_OUTPUT(E_AHI_UART_0);
+				WAIT_UART_OUTPUT(UART_PORT);
 				vAHI_DioWakeEnable(1<<PORT_SW_1, 0);
 				ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, SLEEP_INTERVAL, FALSE, TRUE);
 			}
@@ -590,7 +591,7 @@ void cbToCoNet_vNwkEvent(teEvent eEvent, uint32 u32arg) {
 								nbNode = pEnt;
 							}
 						}
-						WAIT_UART_OUTPUT(E_AHI_UART_0);
+						WAIT_UART_OUTPUT(UART_PORT);
 					}
 
 					//検索結果あり
