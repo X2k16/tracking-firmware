@@ -38,8 +38,6 @@
 #define PORT_LED_3 1
 #define PORT_LED_4 0
 #define PORT_SW_1 8
-#define PORT_SW_2 9
-#define PORT_SW_3 10
 #define PORT_FELICA 5
 
 #define UART_BAUD 115200 // シリアルのボーレート
@@ -121,8 +119,6 @@ static void vInitPort()
 	vPortSetLo(PORT_FELICA);
 
 	vPortAsInput(PORT_SW_1);
-	vPortAsInput(PORT_SW_2);
-	vPortAsInput(PORT_SW_3);
 }
 
 // ハードウェア初期化
