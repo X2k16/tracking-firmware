@@ -32,6 +32,7 @@
 // ポート定義
 #define PORT_LED_1 1
 #define UART_BAUD 115200 // シリアルのボーレート
+#define UART_PORT E_AHI_UART_0
 
 // デバッグメッセージ
 #undef DBG
@@ -82,12 +83,12 @@ static void vSerialInit() {
 	sSerPort.u16AHI_UART_RTS_HIGH = 0xffff;
 	sSerPort.u16SerialRxQueueSize = sizeof(au8SerialRxBuffer);
 	sSerPort.u16SerialTxQueueSize = sizeof(au8SerialTxBuffer);
-	sSerPort.u8SerialPort = E_AHI_UART_0;
+	sSerPort.u8SerialPort = UART_PORT;
 	sSerPort.u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
 	SERIAL_vInit(&sSerPort);
 
 	sSerStream.bPutChar = SERIAL_bTxChar;
-	sSerStream.u8Device = E_AHI_UART_0;
+	sSerStream.u8Device = UART_PORT;
 }
 
 static void vInitPort()
@@ -186,7 +187,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				dbg("\n\rCh%d is selected.", sAppData.u8channel);
 				echo("{ \"type\": \"channel\", \"channel\": %d }\r\n", sAppData.u8channel);
 
-				WAIT_UART_OUTPUT(E_AHI_UART_0);
+				WAIT_UART_OUTPUT(UART_PORT);
 				//Ch変更
 				sToCoNet_AppContext.u8Channel = sAppData.u8channel;
 				ToCoNet_vRfConfig();
@@ -249,7 +250,7 @@ void cbToCoNet_vRxEvent(tsRxDataApp *pRx) {
 			memcpy(idm, pRx->auData, 8);
 			idm2Hex(idm, buf);
 			echo("{ \"type\": \"felica\", \"macaddress\": \"%08X\", \"idm\": \"%s\" }\r\n", pRx->u32SrcAddr, buf);
-			WAIT_UART_OUTPUT(E_AHI_UART_0);
+			WAIT_UART_OUTPUT(UART_PORT);
 		}
 
 		u32BeforeSeq = pRx->u8Seq;
@@ -290,7 +291,7 @@ void cbToCoNet_vNwkEvent(teEvent eEvent, uint32 u32arg)
 						sAppData.u8channel = i + CHANNEL_MASK_BASE;
 						min = pu8Result[i + 1];
 					}
-					WAIT_UART_OUTPUT(E_AHI_UART_0);
+					WAIT_UART_OUTPUT(UART_PORT);
 				}
 				ToCoNet_Event_Process(E_EVENT_CHSCAN_FINISH, 0, vProcessEvCore);
 
