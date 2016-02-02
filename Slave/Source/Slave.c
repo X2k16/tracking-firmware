@@ -38,6 +38,7 @@
 #define PORT_LED_3 1
 #define PORT_LED_4 0
 #define PORT_SW_1 8
+#define PORT_PWM_1 11
 #define PORT_FELICA 5
 
 #define UART_BAUD 115200 // シリアルのボーレート
@@ -73,6 +74,8 @@ uint8 au8FelicaBuffer[128];
 uint8 u8FelicaBufferIndex = 0;
 uint8 au8BeforIdm[8] = {0};
 uint8 u8ScanFailuer = 0;
+
+tsTimerContext sTimerPWM;
 
 // デバッグ出力用に UART を初期化
 static void vSerialInit() {
@@ -121,6 +124,30 @@ static void vInitPort()
 	vPortAsInput(PORT_SW_1);
 }
 
+static void vInitPWM()
+{
+	memset(&sTimerPWM, 0, sizeof(tsTimerContext));
+	vPortAsOutput(PORT_PWM_1);
+
+	// PWM
+	uint16 u16PWM_Hz = 1500; // PWM周波数
+  uint8 u8PWM_prescale = 0; // prescaleの設定
+
+  if (u16PWM_Hz < 10) u8PWM_prescale = 9;
+  else if (u16PWM_Hz < 100) u8PWM_prescale = 6;
+  else if (u16PWM_Hz < 1000) u8PWM_prescale = 3;
+  else if (u16PWM_Hz < 2000) u8PWM_prescale = 1;
+  else u8PWM_prescale = 0;
+
+	sTimerPWM.u16Hz = u16PWM_Hz;
+	sTimerPWM.u8PreScale = u8PWM_prescale;
+	sTimerPWM.u16duty = 1024;
+	sTimerPWM.bPWMout = TRUE;
+  sTimerPWM.u8Device = E_AHI_DEVICE_TIMER1;
+	vTimerConfig(&sTimerPWM);
+	vTimerStart(&sTimerPWM);
+}
+
 // ハードウェア初期化
 static void vInitHardware()
 {
@@ -128,6 +155,7 @@ static void vInitHardware()
 	vSerialInit();
 	ToCoNet_vDebugInit(&sSerStream);
 	ToCoNet_vDebugLevel(0);
+	vInitPWM();
 	vInitPort();
 }
 
