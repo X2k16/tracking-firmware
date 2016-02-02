@@ -42,8 +42,6 @@
 #define PORT_SW_3 10
 #define PORT_FELICA 5
 
-
-
 #define UART_BAUD 115200 // シリアルのボーレート
 #define UART_PORT E_AHI_UART_1
 
