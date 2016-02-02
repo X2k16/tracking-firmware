@@ -124,6 +124,21 @@ static void vInitPort()
 	vPortAsInput(PORT_SW_1);
 }
 
+static void vSetPWM(uint16 value)
+{
+	if(value == 0){
+		// Off
+		sTimerPWM.u16duty = 0;
+	}else{
+		// On
+		sTimerPWM.u16duty = 128;
+		sTimerPWM.u16Hz = value;
+	}
+
+	vTimerConfig(&sTimerPWM);
+	vTimerStart(&sTimerPWM);
+}
+
 static void vInitPWM()
 {
 	memset(&sTimerPWM, 0, sizeof(tsTimerContext));
@@ -141,7 +156,7 @@ static void vInitPWM()
 
 	sTimerPWM.u16Hz = u16PWM_Hz;
 	sTimerPWM.u8PreScale = u8PWM_prescale;
-	sTimerPWM.u16duty = 1024;
+	sTimerPWM.u16duty = 0;
 	sTimerPWM.bPWMout = TRUE;
   sTimerPWM.u8Device = E_AHI_DEVICE_TIMER1;
 	vTimerConfig(&sTimerPWM);
