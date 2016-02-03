@@ -6,6 +6,7 @@ import queue
 import requests
 import datetime
 import traceback
+import time
 from client import Client
 
 TOUCH_API_URL = os.environ.get("TOUCH_API_URL", "https://ticket.cross-party.com/tracking/internalapi/touches/")
@@ -17,6 +18,7 @@ class QueuedClient(Client):
         super().__init__(*args, **kwargs)
 
     def on_felica(self, data):
+        data["date"] = datetime.datetime.now()
         self.queue.put(data)
 
 if __name__ == "__main__":
@@ -30,19 +32,21 @@ if __name__ == "__main__":
         while True:
             try:
                 data = q.get()
+                print(data)
                 response = requests.post(TOUCH_API_URL, json={
-                    "date": (datetime.datetime.now()-datetime.timedelta(hours=7)).isoformat(),
+                    "date": data["date"].isoformat()+"+00:00",
                     "mac":data["macaddress"],
                     "card_id":data["idm"]
                 }, headers={
                     "X-API-KEY": TOUCH_API_KEY
                 })
-                print(response.text)
                 print(response.json())
             except KeyboardInterrupt:
                 raise
             except:
                 traceback.print_exc()
+                q.put(data)
+                time.sleep(0.5)
 
     except KeyboardInterrupt:
         pass
