@@ -75,6 +75,31 @@ uint8 u8FelicaBufferIndex = 0;
 uint8 au8BeforIdm[8] = {0};
 uint8 u8ScanFailuer = 0;
 
+#define SOUND_FREQ 32
+
+#define SOUND_STARTUP 0
+#define SOUND_SHUTDOWN 1
+#define SOUND_CONNECT 2
+#define SOUND_DISCONNECT 3
+#define SOUND_ERROR 4
+#define SOUND_SEARCH 5
+#define SOUND_TOUCH 6
+#define SOUND_SEND_ERROR 7
+
+#define SOUND_LENGTH 15
+uint16 u16SoundTimer = 0;
+uint8 u8SoundSelect = 0;
+const uint16 au16Sounds[8][SOUND_LENGTH] = {
+	{523, 659, 783},
+	{783, 659, 523},
+	{523, 523, 523, 784, 784, 784},
+	{784, 784, 784, 523, 523, 523},
+	{523, 523, 523, 0, 523, 523, 523, 0, 523, 523, 523},
+	{659, 0, 0, 659, 0 , 0},
+	{784, 784, 1047, 1047},
+	{466, 466, 466, 466, 466}
+};
+
 tsTimerContext sTimerPWM;
 
 // デバッグ出力用に UART を初期化
@@ -124,6 +149,7 @@ static void vInitPort()
 	vPortAsInput(PORT_SW_1);
 }
 
+
 static void vSetPWM(uint16 value)
 {
 	if(value == 0){
@@ -135,8 +161,14 @@ static void vSetPWM(uint16 value)
 		sTimerPWM.u16Hz = value;
 	}
 
-	vTimerConfig(&sTimerPWM);
-	vTimerStart(&sTimerPWM);
+	//vTimerConfig(&sTimerPWM);
+	vTimerChangeHz(&sTimerPWM);
+}
+
+static void vPlaySound(uint8 sound){
+	u8SoundSelect = sound;
+	u16SoundTimer = 0;
+	vSetPWM(au16Sounds[sound][0]);
 }
 
 static void vInitPWM()
@@ -301,6 +333,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 		if (sAppData.u32parentDisconnectTime > RECONNECT_TIME)
 		{
 			dbg("master disconnected.");
+			vPlaySound(SOUND_DISCONNECT);
 			sAppData.u32parentDisconnectTime = 0;
 			sAppData.u32parentAddr = 0;
 			ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
@@ -309,6 +342,11 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 	if (eEvent == E_EVENT_TICK_TIMER) {
 		sAppData.u8tick_ms += 4;
+		u16SoundTimer += 4;
+		uint16 soundIndex = u16SoundTimer/SOUND_FREQ;
+		if(soundIndex<SOUND_LENGTH){
+			vSetPWM(au16Sounds[u8SoundSelect][soundIndex]);
+		}
 	}
 
 	// ステート処理
@@ -321,21 +359,22 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 				if (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) {
 				}
+				sAppData.u32parentDisconnectTime = 0;
+				vPlaySound(SOUND_STARTUP);
+			}else if(ToCoNet_Event_u32TickFrNewState(pEv) > 1000) {
+				// 空きチャンネルスキャンに入る
 				u8ScanFailuer = 0;
 				sAppData.u32parentDisconnectTime = 0;
-				// 空きチャンネルスキャンに入る
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
-
-			}	else {
-				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 			}
 			break;
 
 		case E_STATE_CHSCAN_INIT:
 			if (eEvent == E_EVENT_NEW_STATE) {
 				dbg("E_EVENT_NEW_STATE");
+				vPlaySound(SOUND_SEARCH);
 				if(u8ScanFailuer > 5){
-					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_SHUTDOWN);
 				}
 				vPortSetLo(PORT_LED_3);
 				vPortSetHi(PORT_FELICA);
@@ -357,6 +396,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				dbg("CHSCAN finish. Ch%d selected.", sAppData.u8channel);
 				vPortSetHi(PORT_LED_3);
 				vPortSetLo(PORT_LED_4);
+				vPlaySound(SOUND_CONNECT);
 				//Ch変更
 				sToCoNet_AppContext.u8Channel = sAppData.u8channel;
 				ToCoNet_vRfConfig();
@@ -388,6 +428,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			if (eEvent == E_EVENT_NEW_STATE) {
 				sendDebugMessage("NFC Reset");
 				vPortSetLo(PORT_FELICA);
+				vPlaySound(SOUND_ERROR);
 			}else if(eEvent == E_EVENT_TICK_TIMER){
 				if (ToCoNet_Event_u32TickFrNewState(pEv) > 4000){
 					ToCoNet_Event_SetState(pEv, E_STATE_NFC_INIT);
@@ -433,6 +474,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				if(felicaResponse.length==22){
 					vPortSetHi(PORT_LED_1);
 					if(memcmp(au8BeforIdm, felicaResponse.data+6, 8) != 0){
+						vPlaySound(SOUND_TOUCH);
 						sendIdm(felicaResponse.data+6);
 						memcpy(au8BeforIdm, felicaResponse.data+6, 8);
 					}
@@ -444,6 +486,14 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				ToCoNet_Event_SetState(pEv, E_STATE_NFC_RESET);
 			}
 
+			break;
+
+		case E_STATE_APP_SHUTDOWN:
+			if (eEvent == E_EVENT_NEW_STATE){
+				vPlaySound(SOUND_SHUTDOWN);
+			}else if(ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+			}
 			break;
 
 		case E_STATE_APP_SLEEP:
@@ -597,6 +647,7 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 	}
 	else
 	{
+		vPlaySound(SOUND_SEND_ERROR);
 		vPortSetHi(PORT_LED_4);
 		ToCoNet_Event_Process(E_EVENT_TRANSMIT_FAIL, 0, vProcessEvCore);
 	}
