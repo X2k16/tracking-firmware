@@ -9,7 +9,7 @@ import traceback
 import time
 from client import Client
 
-TOUCH_API_URL = os.environ.get("TOUCH_API_URL", "https://ticket.cross-party.com/tracking/internalapi/touches/")
+TOUCH_API_URL = os.environ.get("TOUCH_API_URL", "https://ticket.cross-party.com/tracking/internalapi")
 TOUCH_API_KEY = os.environ.get("TOUCH_API_KEY", "CHANGE_ME")
 
 CLIENT_ID = os.environ.get("CLIENT_ID", None)
@@ -35,9 +35,9 @@ if __name__ == "__main__":
     try:
         while True:
             try:
-                data = q.get()
+                data = q.get(timeout=5.0)
                 print(data)
-                response = requests.post(TOUCH_API_URL, json={
+                response = requests.post("{0}/touches/".format(TOUCH_API_URL), json={
                     "date": data["date"].isoformat()+"+00:00",
                     "mac":data["macaddress"],
                     "card_id":data["idm"],
@@ -48,6 +48,15 @@ if __name__ == "__main__":
                 print(response.json())
             except KeyboardInterrupt:
                 raise
+            except queue.Empty:
+                try:
+                    if CLIENT_ID:
+                        response = requests.put("{0}/clients/{1}".format(TOUCH_API_URL, CLIENT_ID), json={}, headers={
+                            "X-API-KEY": TOUCH_API_KEY
+                        })
+                except:
+                    traceback.print_exc()
+                    time.sleep(1.0)
             except:
                 traceback.print_exc()
                 q.put(data)
