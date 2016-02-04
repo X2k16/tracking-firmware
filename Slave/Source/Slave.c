@@ -38,13 +38,11 @@
 #define PORT_LED_3 1
 #define PORT_LED_4 0
 #define PORT_SW_1 8
-#define PORT_SW_2 9
-#define PORT_SW_3 10
+#define PORT_PWM_1 11
 #define PORT_FELICA 5
 
-
-
 #define UART_BAUD 115200 // シリアルのボーレート
+#define UART_PORT E_AHI_UART_1
 
 // デバッグメッセージ
 #define DBG
@@ -77,6 +75,33 @@ uint8 u8FelicaBufferIndex = 0;
 uint8 au8BeforIdm[8] = {0};
 uint8 u8ScanFailuer = 0;
 
+#define SOUND_FREQ 32
+
+#define SOUND_STARTUP 0
+#define SOUND_SHUTDOWN 1
+#define SOUND_CONNECT 2
+#define SOUND_DISCONNECT 3
+#define SOUND_ERROR 4
+#define SOUND_SEARCH 5
+#define SOUND_TOUCH 6
+#define SOUND_SEND_ERROR 7
+
+#define SOUND_LENGTH 15
+uint16 u16SoundTimer = 0;
+uint8 u8SoundSelect = 0;
+const uint16 au16Sounds[8][SOUND_LENGTH] = {
+	{523, 659, 783},
+	{783, 659, 523},
+	{523, 523, 523, 784, 784, 784},
+	{784, 784, 784, 523, 523, 523},
+	{523, 523, 523, 0, 523, 523, 523, 0, 523, 523, 523},
+	{659, 0, 0, 659, 0 , 0},
+	{784, 784, 1047, 1047},
+	{466, 466, 466, 466, 466}
+};
+
+tsTimerContext sTimerPWM;
+
 // デバッグ出力用に UART を初期化
 static void vSerialInit() {
 	static uint8 au8SerialTxBuffer[96];
@@ -89,14 +114,19 @@ static void vSerialInit() {
 	sSerPort.u16AHI_UART_RTS_HIGH = 0xffff;
 	sSerPort.u16SerialRxQueueSize = sizeof(au8SerialRxBuffer);
 	sSerPort.u16SerialTxQueueSize = sizeof(au8SerialTxBuffer);
-	sSerPort.u8SerialPort = E_AHI_UART_0;
+	sSerPort.u8SerialPort = UART_PORT;
 	sSerPort.u8RX_FIFO_LEVEL = E_AHI_UART_FIFO_LEVEL_1;
 	SERIAL_vInit(&sSerPort);
 
 	sSerStream.bPutChar = SERIAL_bTxChar;
-	sSerStream.u8Device = E_AHI_UART_0;
+	sSerStream.u8Device = UART_PORT;
 }
 
+static void vSerialClear() {
+	while(!SERIAL_bRxQueueEmpty(&sSerPort)){
+		SERIAL_i16RxChar(sSerPort.u8SerialPort);
+	}
+}
 
 static void vInitPort()
 {
@@ -122,8 +152,52 @@ static void vInitPort()
 	vPortSetLo(PORT_FELICA);
 
 	vPortAsInput(PORT_SW_1);
-	vPortAsInput(PORT_SW_2);
-	vPortAsInput(PORT_SW_3);
+}
+
+
+static void vSetPWM(uint16 value)
+{
+	if(value == 0){
+		// Off
+		sTimerPWM.u16duty = 0;
+	}else{
+		// On
+		sTimerPWM.u16duty = 128;
+		sTimerPWM.u16Hz = value;
+	}
+
+	//vTimerConfig(&sTimerPWM);
+	vTimerChangeHz(&sTimerPWM);
+}
+
+static void vPlaySound(uint8 sound){
+	u8SoundSelect = sound;
+	u16SoundTimer = 0;
+	vSetPWM(au16Sounds[sound][0]);
+}
+
+static void vInitPWM()
+{
+	memset(&sTimerPWM, 0, sizeof(tsTimerContext));
+	vPortAsOutput(PORT_PWM_1);
+
+	// PWM
+	uint16 u16PWM_Hz = 1500; // PWM周波数
+  uint8 u8PWM_prescale = 0; // prescaleの設定
+
+  if (u16PWM_Hz < 10) u8PWM_prescale = 9;
+  else if (u16PWM_Hz < 100) u8PWM_prescale = 6;
+  else if (u16PWM_Hz < 1000) u8PWM_prescale = 3;
+  else if (u16PWM_Hz < 2000) u8PWM_prescale = 1;
+  else u8PWM_prescale = 0;
+
+	sTimerPWM.u16Hz = u16PWM_Hz;
+	sTimerPWM.u8PreScale = u8PWM_prescale;
+	sTimerPWM.u16duty = 0;
+	sTimerPWM.bPWMout = TRUE;
+  sTimerPWM.u8Device = E_AHI_DEVICE_TIMER1;
+	vTimerConfig(&sTimerPWM);
+	vTimerStart(&sTimerPWM);
 }
 
 // ハードウェア初期化
@@ -133,6 +207,7 @@ static void vInitHardware()
 	vSerialInit();
 	ToCoNet_vDebugInit(&sSerStream);
 	ToCoNet_vDebugLevel(0);
+	vInitPWM();
 	vInitPort();
 }
 
@@ -154,6 +229,13 @@ static uint8 calcDCS(uint8 *data, uint16 len)
       sum += data[i];
   }
   return (uint8)-(sum & 0xff);
+}
+
+static void sendFelicaReset()
+{
+	uint8 buf[6] = {0x00, 0x00, 0xff, 0x00, 0xff, 0x00};
+	writeSerial(buf, 6);
+	WAIT_UART_OUTPUT(UART_PORT);
 }
 
 static void sendFelicaCommand(uint8 *command, uint16 commandLen){
@@ -183,7 +265,7 @@ static void sendFelicaCommand(uint8 *command, uint16 commandLen){
 	buf[0] = dcs;
 	buf[1] = 0x00;
 	writeSerial(buf, 2);
-	WAIT_UART_OUTPUT(E_AHI_UART_0);
+	WAIT_UART_OUTPUT(UART_PORT);
 }
 
 
@@ -263,6 +345,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 		if (sAppData.u32parentDisconnectTime > RECONNECT_TIME)
 		{
 			dbg("master disconnected.");
+			vPlaySound(SOUND_DISCONNECT);
 			sAppData.u32parentDisconnectTime = 0;
 			sAppData.u32parentAddr = 0;
 			ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
@@ -271,6 +354,15 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 	if (eEvent == E_EVENT_TICK_TIMER) {
 		sAppData.u8tick_ms += 4;
+
+		// サウンドの再生
+		u16SoundTimer += 4;
+		uint16 soundIndex = u16SoundTimer/SOUND_FREQ;
+		if(soundIndex<SOUND_LENGTH){
+			vSetPWM(au16Sounds[u8SoundSelect][soundIndex]);
+		}else{
+			u16SoundTimer = SOUND_FREQ * (SOUND_LENGTH+1);
+		}
 	}
 
 	// ステート処理
@@ -283,21 +375,22 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 				if (u32evarg & EVARG_START_UP_WAKEUP_RAMHOLD_MASK) {
 				}
+				sAppData.u32parentDisconnectTime = 0;
+				vPlaySound(SOUND_STARTUP);
+			}else if(ToCoNet_Event_u32TickFrNewState(pEv) > 1000) {
+				// 空きチャンネルスキャンに入る
 				u8ScanFailuer = 0;
 				sAppData.u32parentDisconnectTime = 0;
-				// 空きチャンネルスキャンに入る
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
-
-			}	else {
-				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
 			}
 			break;
 
 		case E_STATE_CHSCAN_INIT:
 			if (eEvent == E_EVENT_NEW_STATE) {
 				dbg("E_EVENT_NEW_STATE");
+				vPlaySound(SOUND_SEARCH);
 				if(u8ScanFailuer > 5){
-					ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+					ToCoNet_Event_SetState(pEv, E_STATE_APP_SHUTDOWN);
 				}
 				vPortSetLo(PORT_LED_3);
 				vPortSetHi(PORT_FELICA);
@@ -319,6 +412,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				dbg("CHSCAN finish. Ch%d selected.", sAppData.u8channel);
 				vPortSetHi(PORT_LED_3);
 				vPortSetLo(PORT_LED_4);
+				vPlaySound(SOUND_CONNECT);
 				//Ch変更
 				sToCoNet_AppContext.u8Channel = sAppData.u8channel;
 				ToCoNet_vRfConfig();
@@ -342,21 +436,27 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				ToCoNet_Event_SetState(pEv, E_STATE_CHSCAN_INIT);
 			}
 
-			WAIT_UART_OUTPUT(E_AHI_UART_0);
+			WAIT_UART_OUTPUT(UART_PORT);
 
 			break;
 
 		case E_STATE_NFC_RESET:
+
 			if (eEvent == E_EVENT_NEW_STATE) {
 				sendDebugMessage("NFC Reset");
 				vPortSetLo(PORT_FELICA);
+				vPlaySound(SOUND_ERROR);
 			}else if(eEvent == E_EVENT_TICK_TIMER){
 				if (ToCoNet_Event_u32TickFrNewState(pEv) > 4000){
 					ToCoNet_Event_SetState(pEv, E_STATE_NFC_INIT);
-				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 2000){
+				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 2500){
+					vSerialClear();
+					sendFelicaReset();
+					sendFelicaReset();
+					sendFelicaReset();
+				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 500){
 					vPortSetHi(PORT_FELICA);
 				}
-
 			}
 			break;
 
@@ -366,12 +466,15 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				sendDebugMessage("NFC Init");
 				sAppData.u8tick_ms = 0;
 				u8NfcInitStage = 1;
-				sendFelicaCommand((uint8*)"\xd4\x32\x02\x00\x00\x00", 6);
+				vSerialClear();
+				sendFelicaCommand((uint8*)"\xd4\x18\x01", 3);
 			}else if(eEvent == E_EVENT_NFC_RESPONSE){
 				sAppData.u8tick_ms = 0;
 				if(u8NfcInitStage == 1)
-					sendFelicaCommand((uint8*)"\xd4\x32\x05\x00\x00\x00", 6);
+					sendFelicaCommand((uint8*)"\xd4\x32\x02\x00\x00\x00", 6);
 				else if(u8NfcInitStage == 2)
+					sendFelicaCommand((uint8*)"\xd4\x32\x05\x00\x00\x00", 6);
+				else if(u8NfcInitStage == 3)
 					sendFelicaCommand((uint8*)"\xd4\x32\x81\xb7", 4);
 				else{
 					sAppData.u8tick_ms = 0;
@@ -395,6 +498,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				if(felicaResponse.length==22){
 					vPortSetHi(PORT_LED_1);
 					if(memcmp(au8BeforIdm, felicaResponse.data+6, 8) != 0){
+						vPlaySound(SOUND_TOUCH);
 						sendIdm(felicaResponse.data+6);
 						memcpy(au8BeforIdm, felicaResponse.data+6, 8);
 					}
@@ -408,6 +512,14 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 			break;
 
+		case E_STATE_APP_SHUTDOWN:
+			if (eEvent == E_EVENT_NEW_STATE){
+				vPlaySound(SOUND_SHUTDOWN);
+			}else if(ToCoNet_Event_u32TickFrNewState(pEv) > 200) {
+				ToCoNet_Event_SetState(pEv, E_STATE_APP_SLEEP);
+			}
+			break;
+
 		case E_STATE_APP_SLEEP:
 			dbg("E_STATE_APP_SLEEP");
 			if (eEvent == E_EVENT_NEW_STATE) {
@@ -418,7 +530,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				vPortSetLo(PORT_LED_4);
 				vPortSetLo(PORT_FELICA);
 				sAppData.u32parentAddr = 0;
-				WAIT_UART_OUTPUT(E_AHI_UART_0);
+				WAIT_UART_OUTPUT(UART_PORT);
 				vAHI_DioWakeEnable(1<<PORT_SW_1, 0);
 				ToCoNet_vSleep(E_AHI_WAKE_TIMER_0, SLEEP_INTERVAL, FALSE, TRUE);
 			}
@@ -559,6 +671,7 @@ void cbToCoNet_vTxEvent(uint8 u8CbId, uint8 bStatus) {
 	}
 	else
 	{
+		vPlaySound(SOUND_SEND_ERROR);
 		vPortSetHi(PORT_LED_4);
 		ToCoNet_Event_Process(E_EVENT_TRANSMIT_FAIL, 0, vProcessEvCore);
 	}
@@ -590,7 +703,7 @@ void cbToCoNet_vNwkEvent(teEvent eEvent, uint32 u32arg) {
 								nbNode = pEnt;
 							}
 						}
-						WAIT_UART_OUTPUT(E_AHI_UART_0);
+						WAIT_UART_OUTPUT(UART_PORT);
 					}
 
 					//検索結果あり
