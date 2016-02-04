@@ -122,6 +122,11 @@ static void vSerialInit() {
 	sSerStream.u8Device = UART_PORT;
 }
 
+static void vSerialClear() {
+	while(!SERIAL_bRxQueueEmpty(&sSerPort)){
+		SERIAL_i16RxChar(sSerPort.u8SerialPort);
+	}
+}
 
 static void vInitPort()
 {
@@ -445,6 +450,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				if (ToCoNet_Event_u32TickFrNewState(pEv) > 4000){
 					ToCoNet_Event_SetState(pEv, E_STATE_NFC_INIT);
 				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 2500){
+					vSerialClear();
 					sendFelicaReset();
 					sendFelicaReset();
 					sendFelicaReset();
@@ -460,6 +466,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				sendDebugMessage("NFC Init");
 				sAppData.u8tick_ms = 0;
 				u8NfcInitStage = 1;
+				vSerialClear();
 				sendFelicaCommand((uint8*)"\xd4\x18\x01", 3);
 			}else if(eEvent == E_EVENT_NFC_RESPONSE){
 				sAppData.u8tick_ms = 0;
