@@ -15,6 +15,7 @@ pip3 install -r ../requirements.txt
 ```
 (
   export TOUCH_API_KEY=changeme;
+  export CLIENT_ID=6;
   cd /opt/cross/tracking-firmware/Client/src;
   while true;
   do /usr/bin/python3 cross.py;

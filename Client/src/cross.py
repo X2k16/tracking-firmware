@@ -12,6 +12,10 @@ from client import Client
 TOUCH_API_URL = os.environ.get("TOUCH_API_URL", "https://ticket.cross-party.com/tracking/internalapi/touches/")
 TOUCH_API_KEY = os.environ.get("TOUCH_API_KEY", "CHANGE_ME")
 
+CLIENT_ID = os.environ.get("CLIENT_ID", None)
+if CLIENT_ID:
+    CLIENT_ID = int(CLIENT_ID)
+
 class QueuedClient(Client):
     def __init__(self, *args, **kwargs):
         self.queue = kwargs.pop("queue")
@@ -36,7 +40,8 @@ if __name__ == "__main__":
                 response = requests.post(TOUCH_API_URL, json={
                     "date": data["date"].isoformat()+"+00:00",
                     "mac":data["macaddress"],
-                    "card_id":data["idm"]
+                    "card_id":data["idm"],
+                    "client": CLIENT_ID,
                 }, headers={
                     "X-API-KEY": TOUCH_API_KEY
                 })
