@@ -226,6 +226,13 @@ static uint8 calcDCS(uint8 *data, uint16 len)
   return (uint8)-(sum & 0xff);
 }
 
+static void sendFelicaReset()
+{
+	uint8 buf[6] = {0x00, 0x00, 0xff, 0x00, 0xff, 0x00};
+	writeSerial(buf, 6);
+	WAIT_UART_OUTPUT(UART_PORT);
+}
+
 static void sendFelicaCommand(uint8 *command, uint16 commandLen){
 	uint8 buf[9];
 
@@ -342,10 +349,14 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 
 	if (eEvent == E_EVENT_TICK_TIMER) {
 		sAppData.u8tick_ms += 4;
+
+		// サウンドの再生
 		u16SoundTimer += 4;
 		uint16 soundIndex = u16SoundTimer/SOUND_FREQ;
 		if(soundIndex<SOUND_LENGTH){
 			vSetPWM(au16Sounds[u8SoundSelect][soundIndex]);
+		}else{
+			u16SoundTimer = SOUND_FREQ * (SOUND_LENGTH+1);
 		}
 	}
 
@@ -425,6 +436,7 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			break;
 
 		case E_STATE_NFC_RESET:
+
 			if (eEvent == E_EVENT_NEW_STATE) {
 				sendDebugMessage("NFC Reset");
 				vPortSetLo(PORT_FELICA);
@@ -432,10 +444,13 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 			}else if(eEvent == E_EVENT_TICK_TIMER){
 				if (ToCoNet_Event_u32TickFrNewState(pEv) > 4000){
 					ToCoNet_Event_SetState(pEv, E_STATE_NFC_INIT);
-				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 2000){
+				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 2500){
+					sendFelicaReset();
+					sendFelicaReset();
+					sendFelicaReset();
+				}else if (ToCoNet_Event_u32TickFrNewState(pEv) > 500){
 					vPortSetHi(PORT_FELICA);
 				}
-
 			}
 			break;
 
@@ -445,12 +460,14 @@ static void vProcessEvCore(tsEvent *pEv, teEvent eEvent, uint32 u32evarg)
 				sendDebugMessage("NFC Init");
 				sAppData.u8tick_ms = 0;
 				u8NfcInitStage = 1;
-				sendFelicaCommand((uint8*)"\xd4\x32\x02\x00\x00\x00", 6);
+				sendFelicaCommand((uint8*)"\xd4\x18\x01", 3);
 			}else if(eEvent == E_EVENT_NFC_RESPONSE){
 				sAppData.u8tick_ms = 0;
 				if(u8NfcInitStage == 1)
-					sendFelicaCommand((uint8*)"\xd4\x32\x05\x00\x00\x00", 6);
+					sendFelicaCommand((uint8*)"\xd4\x32\x02\x00\x00\x00", 6);
 				else if(u8NfcInitStage == 2)
+					sendFelicaCommand((uint8*)"\xd4\x32\x05\x00\x00\x00", 6);
+				else if(u8NfcInitStage == 3)
 					sendFelicaCommand((uint8*)"\xd4\x32\x81\xb7", 4);
 				else{
 					sAppData.u8tick_ms = 0;
